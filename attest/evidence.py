@@ -60,6 +60,8 @@ def _manifest_entries(manifest: Path) -> list:
         mark = getattr(e, "problem_mark", None)
         where = f" (line {mark.line + 1})" if mark else ""
         raise AttestError(f"manifest.yaml: not valid YAML{where}") from e
+    except ValueError as e:  # PyYAML's timestamp constructor: 2026-02-30 is a ValueError, not a YAMLError
+        raise AttestError(f"manifest.yaml: contains an impossible date or value ({e})") from e
     if data is None:
         return []
     if not isinstance(data, dict) or "exports" not in data:
@@ -86,7 +88,7 @@ def _checked_entry(entry: object, i: int) -> tuple[str, str, datetime]:
         raise AttestError(f"manifest.yaml: entry {i} names unknown reader {entry['reader']!r}")
     try:
         exported_at = parse_time(entry["exported_at"], "manifest.yaml", i, "exported_at")
-    except AttestError as e:
+    except (AttestError, OverflowError) as e:  # OverflowError: a year-9999 time with an offset leaves the UTC range
         raise AttestError(
             f"manifest.yaml: entry {i} field 'exported_at' is not a time: {entry['exported_at']!r}") from e
     return entry["file"], entry["reader"], exported_at

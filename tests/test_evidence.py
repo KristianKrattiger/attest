@@ -64,8 +64,14 @@ NOT_A_MAPPING = "manifest.yaml: expected a mapping with an 'exports' list"
     (ONE_USERS_EXPORT.replace("reader: entra_users", "reader: [a]"),
      "manifest.yaml: entry 1 field 'reader' must be a non-empty string"),
     (ONE_USERS_EXPORT.replace("file: users.json", 'file: "a\\x00b"'),
-     "manifest.yaml: entry 1 file 'a.x00b' is not a usable path"),
+     "manifest.yaml: entry 1 file " + re.escape(repr("a\x00b")) + " is not a usable path"),
     (ONE_USERS_EXPORT.replace("2026-10-01T15:00:00Z", "null"),
+     "manifest.yaml: entry 1 field 'exported_at' is not a time"),
+    (ONE_USERS_EXPORT.replace("2026-10-01T15:00:00Z", "2026-13-45T00:00:00Z"),
+     "manifest.yaml: contains an impossible date"),
+    (ONE_USERS_EXPORT.replace("2026-10-01T15:00:00Z", "2026-02-30"),
+     "manifest.yaml: contains an impossible date"),
+    (ONE_USERS_EXPORT.replace("2026-10-01T15:00:00Z", '"9999-12-31T23:59:59-05:00"'),
      "manifest.yaml: entry 1 field 'exported_at' is not a time"),
 ])
 def test_a_malformed_manifest_stops_the_run(tmp_path, manifest, message):
