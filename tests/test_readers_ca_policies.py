@@ -4,6 +4,8 @@ from attest.model import AttestError
 from attest.readers.entra_ca_policies import CaPolicy, narrowing_conditions, read, requires_mfa
 
 MFA_STRENGTH = {"id": "00000000-0000-0000-0000-000000000002", "displayName": "Multifactor authentication"}
+ODATA_STRENGTH_CONTEXT = ("https://graph.microsoft.com/v1.0/$metadata#identity/conditionalAccess/"
+                          "policies('p1')/grantControls/authenticationStrength/$entity")
 PASSWORDLESS_STRENGTH = {"id": "00000000-0000-0000-0000-000000000003", "displayName": "Passwordless MFA"}
 PHISHING_RESISTANT_STRENGTH = {"id": "00000000-0000-0000-0000-000000000004", "displayName": "Phishing-resistant MFA"}
 
@@ -47,6 +49,12 @@ BASE = {
     ({"operator": "OR", "builtInControls": ["mfa"], "newAlternative": []}, True),
     ({"operator": "OR", "builtInControls": ["mfa"], "newAlternative": {}}, True),
     ({"operator": "OR", "builtInControls": ["mfa"], "@odata.type": "#microsoft.graph.g"}, True),
+    ({"operator": "OR", "builtInControls": [], "customAuthenticationFactors": [], "termsOfUse": [],
+      "authenticationStrength@odata.context": ODATA_STRENGTH_CONTEXT,
+      "authenticationStrength": MFA_STRENGTH}, True),
+    ({"operator": "OR", "builtInControls": ["mfa"], "authenticationStrength@odata.context": "x",
+      "authenticationStrength": None}, True),
+    ({"operator": "OR", "builtInControls": ["mfa"], "@microsoft.graph.tip": "x"}, True),
 ])
 def test_requires_mfa_only_when_every_way_through_takes_mfa(grant, expected):
     assert requires_mfa(grant) is expected
@@ -115,6 +123,29 @@ def test_each_narrowing_condition_is_named(change, name):
 ], ids=["conditions", "applications", "users", "locations", "platforms"])
 def test_an_unknown_condition_with_nothing_in_it_does_not_narrow(change, empty):
     assert narrowing_conditions({**BASE, **change(empty)}) == ()
+
+
+COLLECTION = "#Collection(String)"
+
+
+@pytest.mark.parametrize("change", [
+    {"clientAppTypes@odata.type": COLLECTION},
+    {"users": {"includeUsers": ["All"], "includeUsers@odata.type": COLLECTION}},
+    {"applications": {"includeApplications": ["All"], "@microsoft.graph.tip": "x"}},
+    {"applications": {"includeApplications": ["All"], "includeApplications@odata.type": COLLECTION}},
+    {"locations": {"includeLocations": ["All"], "includeLocations@odata.type": COLLECTION}},
+    {"platforms": {"includePlatforms": ["all"], "includePlatforms@odata.type": COLLECTION}},
+    {"devices": {"deviceFilter": None, "includeDevices": [], "includeDevices@odata.type": COLLECTION}},
+], ids=["conditions", "users", "applications-instance", "applications", "locations", "platforms", "devices"])
+def test_property_level_annotations_never_narrow(change):
+    assert narrowing_conditions({**BASE, **change}) == ()
+
+
+def test_a_missing_or_empty_client_app_types_narrows_in_the_pure_function():
+    without = {k: v for k, v in BASE.items() if k != "clientAppTypes"}
+    assert "clientAppTypes" in narrowing_conditions(without)
+    assert "clientAppTypes" in narrowing_conditions({**BASE, "clientAppTypes": []})
+    assert "clientAppTypes" in narrowing_conditions({**BASE, "clientAppTypes": None})
 
 
 def test_odata_annotations_never_narrow():

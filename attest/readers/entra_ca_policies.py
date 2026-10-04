@@ -88,10 +88,18 @@ def requires_mfa(grant: dict | None) -> bool:
     return (grant.get("operator") or "OR").upper() == "AND" or not alternatives
 
 
+def _is_annotation(key: str) -> bool:
+    """True for an OData annotation: "@odata.type", "includeUsers@odata.type", "@microsoft.graph.x".
+
+    OData property names cannot contain "@", so a key that does is never a policy control.
+    """
+    return "@" in key
+
+
 def _is_set(value: Any) -> bool:
-    """True when a condition carries anything, ignoring @odata annotations."""
+    """True when a condition carries anything, ignoring annotations."""
     if isinstance(value, dict):
-        return any(_is_set(v) for k, v in value.items() if not k.startswith("@odata"))
+        return any(_is_set(v) for k, v in value.items() if not _is_annotation(k))
     return bool(value)
 
 
@@ -131,9 +139,9 @@ _PLATFORM_KEYS = frozenset({"includePlatforms", "excludePlatforms"})
 
 
 def _unknown(obj: dict, known: frozenset[str]) -> list[str]:
-    """Keys outside the allow-list (and not @odata annotations) that carry a value."""
+    """Keys outside the allow-list (and not annotations) that carry a value."""
     return [key for key, value in obj.items()
-            if key not in known and not key.startswith("@odata") and _is_set(value)]
+            if key not in known and not _is_annotation(key) and _is_set(value)]
 
 
 def _unknown_keys(obj: dict, known: frozenset[str], prefix: str) -> list[str]:
@@ -149,7 +157,7 @@ def narrowing_conditions(conditions: dict) -> tuple[str, ...]:
     narrows instead of passing unseen.
     """
     found: list[str] = []
-    if [t.lower() for t in conditions.get("clientAppTypes") or ["all"]] != ["all"]:
+    if [t.lower() for t in conditions.get("clientAppTypes") or []] != ["all"]:
         found.append("clientAppTypes")
     if _locations_narrow(conditions.get("locations")):
         found.append("locations")
