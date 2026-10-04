@@ -82,3 +82,21 @@ def test_a_naive_time_is_taken_as_utc():
 def test_an_unreadable_time_stops_the_run():
     with pytest.raises(AttestError, match="field 't' is not a time"):
         parse_time("yesterday", "f.json", 1, "t")
+
+
+def test_a_file_in_another_encoding_stops_the_run_naming_the_file(tmp_path):
+    path = tmp_path / "legacy.json"
+    path.write_bytes('[{"displayName": "Zoë"}]'.encode("cp1252"))
+    with pytest.raises(AttestError, match="legacy.json: not UTF-8 or UTF-16 text"):
+        load_records(path)
+
+
+def test_an_offset_time_is_converted_to_utc():
+    moment = parse_time("2026-10-01T04:10:13+02:00", "f.json", 1, "t")
+    assert moment == datetime(2026, 10, 1, 2, 10, 13, tzinfo=timezone.utc)
+    assert moment.tzinfo == timezone.utc
+
+
+def test_an_out_of_range_powershell_date_stops_the_run():
+    with pytest.raises(AttestError, match="field 't' is not a time"):
+        parse_time("/Date(99999999999999999)/", "f.json", 1, "t")

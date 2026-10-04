@@ -22,13 +22,17 @@ def load_records(path: Path) -> list[dict]:
     """The records of a JSON export: a list, a Graph or Defender page {"value": [...]}, or one object.
 
     Windows PowerShell 5.1 writes UTF-16 by default; a UTF-16 byte-order mark is
-    honoured, otherwise the file is read as UTF-8 with or without a BOM. A page
-    that carries "@odata.nextLink" is one page of several and is refused: a
-    truncated user or device list would shrink the population.
+    honoured, otherwise the file is read as UTF-8 with or without a BOM; a file
+    that is neither is refused, not guessed at. A page that carries
+    "@odata.nextLink" is one page of several and is refused: a truncated user or
+    device list would shrink the population.
     """
     path = Path(path)
     raw = path.read_bytes()
-    text = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8-sig")
+    try:
+        text = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else raw.decode("utf-8-sig")
+    except UnicodeDecodeError as e:
+        raise AttestError(f"{path.name}: not UTF-8 or UTF-16 text ({e.reason})") from e
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
@@ -71,13 +75,19 @@ def require_bool(record: dict, key: str, file: str, row: int) -> bool:
 
 
 def parse_time(value: Any, file: str, row: int, key: str) -> datetime:
-    """An ISO 8601 time, a PowerShell 5.1 "/Date(ms)/", or a datetime YAML already parsed; always UTC-aware."""
+    """An ISO 8601 time, a PowerShell 5.1 "/Date(ms)/", or a datetime YAML already parsed; always UTC-aware.
+
+    A time with another UTC offset is converted to UTC; a time with no offset is taken as UTC.
+    """
     if isinstance(value, dict) and "value" in value:  # PowerShell 5.1 can wrap a DateTime as {"value": ...}
         value = value["value"]
     if isinstance(value, datetime):
         moment = value
     elif isinstance(value, str) and (match := _MS_DATE.match(value.strip())):
-        return datetime.fromtimestamp(int(match.group(1)) / 1000, tz=timezone.utc)
+        try:
+            return datetime.fromtimestamp(int(match.group(1)) / 1000, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError) as e:  # the ms count is beyond what a datetime can hold
+            raise AttestError(f"{file}: row {row} field {key!r} is not a time: {value!r}") from e
     elif isinstance(value, str):
         try:
             moment = datetime.fromisoformat(value.strip())
@@ -85,4 +95,4 @@ def parse_time(value: Any, file: str, row: int, key: str) -> datetime:
             raise AttestError(f"{file}: row {row} field {key!r} is not a time: {value!r}") from e
     else:
         raise AttestError(f"{file}: row {row} field {key!r} is not a time: {value!r}")
-    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc) if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
