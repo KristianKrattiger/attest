@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -36,26 +37,72 @@ class Evidence:
 
 def load_evidence(exports_dir: Path) -> Evidence:
     """Every export the manifest lists, each read by its named reader and stamped with its time."""
-    manifest = Path(exports_dir) / "manifest.yaml"
+    exports_dir = Path(exports_dir)
+    loaded: dict[str, Export] = {}
+    for i, entry in enumerate(_manifest_entries(exports_dir / "manifest.yaml"), start=1):
+        file, name, exported_at = _checked_entry(entry, i)
+        if name in loaded:
+            raise AttestError(f"manifest.yaml: entry {i} repeats reader {name!r}")
+        path = _export_path(exports_dir, file, i)
+        loaded[name] = Export(file=file, exported_at=exported_at, items=READERS[name](path))
+    return Evidence(**loaded)
+
+
+def _manifest_entries(manifest: Path) -> list:
+    """The raw entries of the manifest's 'exports' list; an empty manifest lists none."""
     if not manifest.is_file():
         raise AttestError(f"{manifest} not found")
-    data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
-    loaded: dict[str, Export] = {}
-    for i, entry in enumerate(data.get("exports") or [], start=1):
-        for key in ("file", "reader", "exported_at"):
-            if key not in entry:
-                raise AttestError(f"manifest.yaml: entry {i} has no {key!r}")
-        name = entry["reader"]
-        if name not in READERS:
-            raise AttestError(f"manifest.yaml: entry {i} names unknown reader {name!r}")
-        if name in loaded:
-            raise AttestError(f"manifest.yaml: reader {name!r} appears twice")
-        path = Path(exports_dir) / entry["file"]
-        if not path.is_file():
-            raise AttestError(f"manifest.yaml: entry {i} file {entry['file']!r} does not exist")
-        loaded[name] = Export(
-            file=entry["file"],
-            exported_at=parse_time(entry["exported_at"], "manifest.yaml", i, "exported_at"),
-            items=READERS[name](path),
-        )
-    return Evidence(**loaded)
+    try:
+        data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    except UnicodeDecodeError as e:
+        raise AttestError(f"manifest.yaml: not UTF-8 text ({e.reason})") from e
+    except yaml.YAMLError as e:
+        mark = getattr(e, "problem_mark", None)
+        where = f" (line {mark.line + 1})" if mark else ""
+        raise AttestError(f"manifest.yaml: not valid YAML{where}") from e
+    if data is None:
+        return []
+    if not isinstance(data, dict) or "exports" not in data:
+        raise AttestError("manifest.yaml: expected a mapping with an 'exports' list")
+    for key in data:
+        if key != "exports":
+            raise AttestError(f"manifest.yaml: unknown key {key!r}")
+    if not isinstance(data["exports"], list):
+        raise AttestError("manifest.yaml: expected a mapping with an 'exports' list")
+    return data["exports"]
+
+
+def _checked_entry(entry: object, i: int) -> tuple[str, str, datetime]:
+    """One entry's file, reader name and export time, each of the right kind and the reader a known one."""
+    if not isinstance(entry, dict):
+        raise AttestError(f"manifest.yaml: entry {i} must be a mapping")
+    for key in ("file", "reader", "exported_at"):
+        if key not in entry:
+            raise AttestError(f"manifest.yaml: entry {i} has no {key!r}")
+    for key in ("file", "reader"):
+        if not isinstance(entry[key], str) or not entry[key]:
+            raise AttestError(f"manifest.yaml: entry {i} field {key!r} must be a non-empty string")
+    if entry["reader"] not in READERS:
+        raise AttestError(f"manifest.yaml: entry {i} names unknown reader {entry['reader']!r}")
+    try:
+        exported_at = parse_time(entry["exported_at"], "manifest.yaml", i, "exported_at")
+    except AttestError as e:
+        raise AttestError(
+            f"manifest.yaml: entry {i} field 'exported_at' is not a time: {entry['exported_at']!r}") from e
+    return entry["file"], entry["reader"], exported_at
+
+
+def _export_path(exports_dir: Path, file: str, i: int) -> Path:
+    """The listed file, which must be an existing regular file inside the exports folder."""
+    path = exports_dir / file
+    try:
+        inside = path.resolve().is_relative_to(exports_dir.resolve())
+    except (OSError, ValueError) as e:  # e.g. a NUL in the name
+        raise AttestError(f"manifest.yaml: entry {i} file {file!r} is not a usable path") from e
+    if not inside:
+        raise AttestError(f"manifest.yaml: entry {i} file {file!r} is outside the exports folder")
+    if not path.exists():
+        raise AttestError(f"manifest.yaml: entry {i} file {file!r} does not exist")
+    if not path.is_file():
+        raise AttestError(f"manifest.yaml: entry {i} file {file!r} is not a file")
+    return path
