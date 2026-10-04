@@ -31,7 +31,7 @@ def read(path: Path) -> tuple[RoleAssignment, ...]:
     for row, r in enumerate(load_records(path), start=1):
         principal = r.get("principal")
         if not isinstance(principal, dict):
-            raise AttestError(f"{file}: row {row} has no field 'principal' (export with $expand=principal)")
+            raise AttestError(f"{file}: row {row} has no expanded principal (export with $expand=principal; a null principal means its account was deleted)")
         odata_type = require_str(principal, "@odata.type", file, row)
         kind = odata_type[len(_ODATA_PREFIX):] if odata_type.startswith(_ODATA_PREFIX) else odata_type
         assignments.append(RoleAssignment(
@@ -39,7 +39,7 @@ def read(path: Path) -> tuple[RoleAssignment, ...]:
             principal_kind=kind,
             principal_name=principal.get("userPrincipalName") or principal.get("displayName") or "",
             role_id=require_str(r, "roleDefinitionId", file, row),
-            scope=r.get("directoryScopeId") or "/",
+            scope=r.get("directoryScopeId") or r.get("appScopeId") or "",
             cite=f"{file}:{row}",
         ))
     return tuple(assignments)

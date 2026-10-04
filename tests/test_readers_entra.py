@@ -81,3 +81,19 @@ def test_role_assignments_without_expanded_principal_say_how_to_export(write_jso
     path = write_json("roles.json", [{"id": "ra1", "principalId": "u1", "roleDefinitionId": "r"}])
     with pytest.raises(AttestError, match=r"\$expand=principal"):
         entra_role_assignments.read(path)
+
+
+def test_a_role_scope_is_recorded_as_exported_never_guessed(write_json):
+    principal = {"@odata.type": "#microsoft.graph.user", "id": "u1", "userPrincipalName": "ann@firm.example"}
+    path = write_json("roles.json", [
+        {"principalId": "u1", "roleDefinitionId": "r", "appScopeId": "/AccessPackageCatalog/c1", "principal": principal},
+        {"principalId": "u1", "roleDefinitionId": "r", "directoryScopeId": None, "principal": principal},
+    ])
+    app_scoped, unscoped = entra_role_assignments.read(path)
+    assert (app_scoped.scope, unscoped.scope) == ("/AccessPackageCatalog/c1", "")
+
+
+def test_a_null_principal_stops_the_run_naming_both_causes(write_json):
+    path = write_json("roles.json", [{"principalId": "u1", "roleDefinitionId": "r", "principal": None}])
+    with pytest.raises(AttestError, match="a null principal means its account was deleted"):
+        entra_role_assignments.read(path)
