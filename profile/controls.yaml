@@ -1,0 +1,14 @@
+# Control -> scope -> proof rule (attest/rules). The profile is the check's
+# only list of what an attestation can be tagged as.
+mfa:
+  all_users: mfa_all_users
+  email: mfa_email
+  admins: mfa_admins
+  remote_access: mfa_remote_access
+edr:
+  all_endpoints: edr_all_endpoints
+backup:
+  m365_mailboxes: backup_m365_mailboxes
+  servers: backup_servers
+  offline_copy: backup_offline_copy
+  restore_tested: backup_restore_tested
