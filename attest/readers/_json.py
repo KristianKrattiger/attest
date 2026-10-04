@@ -8,14 +8,18 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from attest.model import AttestError
 
 # Windows PowerShell 5.1's ConvertTo-Json writes a DateTime as "/Date(ms)/".
 _MS_DATE = re.compile(r"^/Date\((-?\d+)(?:[+-]\d{4})?\)/$")
+
+# Graph and Defender report a device that is not Entra-joined as null or this GUID.
+ZERO_GUID = "00000000-0000-0000-0000-000000000000"
 
 
 def load_records(path: Path) -> list[dict]:
@@ -72,6 +76,24 @@ def require_bool(record: dict, key: str, file: str, row: int) -> bool:
     if not isinstance(value, bool):
         raise AttestError(f"{file}: row {row} field {key!r} must be true or false, got {value!r}")
     return value
+
+
+def device_id(value: Any, file: str, row: int, field: str) -> Optional[str]:
+    """A lower-case Entra device GUID, or None when the device is not joined (null, "" or the all-zero GUID).
+
+    Anything else is refused, never kept as an ID or read as "not joined": a bad
+    value must not change which device a row is matched to.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        try:
+            canonical = str(uuid.UUID(value))
+        except ValueError:
+            canonical = None
+        if canonical is not None:
+            return None if canonical == ZERO_GUID else canonical
+    raise AttestError(f"{file}: row {row} field {field!r} must be a device GUID or null, got {value!r}")
 
 
 def parse_time(value: Any, file: str, row: int, key: str) -> datetime:

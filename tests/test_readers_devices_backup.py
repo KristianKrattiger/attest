@@ -67,3 +67,114 @@ def test_a_veeam_export_without_mailbox_backup_time_stops_the_run(write_json):
     path = write_json("veeam.json", [{"Email": "ann@firm.example", "IsMailboxBackedUp": True}])
     with pytest.raises(AttestError, match="no field 'MailboxBackedUpTime'"):
         veeam_users.read(path)
+
+
+def test_a_defender_machine_without_the_aad_device_id_field_stops_the_run(write_json):
+    # The Machine resource always emits aadDeviceId (a nullable Guid): a dropped key must not
+    # silently switch device matching from Entra ID to hostname.
+    path = write_json("mde.json", [
+        {"id": "m1", "computerDnsName": "x", "onboardingStatus": "Onboarded", "healthStatus": "Active",
+         "lastSeen": None},
+    ])
+    with pytest.raises(AttestError, match="no field 'aadDeviceId'"):
+        defender_machines.read(path)
+
+
+def test_an_intune_device_without_the_operating_system_field_stops_the_run(write_json):
+    path = write_json("intune.json", [
+        {"id": "i1", "deviceName": "HP-LT-01", "azureADDeviceId": "d0000000-0000-4000-8000-000000000001"},
+    ])
+    with pytest.raises(AttestError, match="no field 'operatingSystem'"):
+        intune_devices.read(path)
+
+
+def test_an_intune_device_with_a_null_operating_system_reads_as_empty(write_json):
+    path = write_json("intune.json", [
+        {"id": "i1", "deviceName": "HP-LT-01", "azureADDeviceId": None, "operatingSystem": None},
+    ])
+    (device,) = intune_devices.read(path)
+    assert (device.os, device.aad_device_id) == ("", None)
+
+
+def test_a_defender_machine_without_last_seen_stops_the_run_but_a_null_last_seen_reads_as_none(write_json):
+    row = {"id": "m1", "computerDnsName": "x", "aadDeviceId": None, "onboardingStatus": "Onboarded",
+           "healthStatus": "Active"}
+    with pytest.raises(AttestError, match="no field 'lastSeen'"):
+        defender_machines.read(write_json("mde.json", [row]))
+    (machine,) = defender_machines.read(write_json("mde-null.json", [{**row, "lastSeen": None}]))
+    assert machine.last_seen is None
+
+
+def test_a_device_id_that_is_not_a_guid_stops_the_run_naming_file_row_and_field(write_json):
+    intune = write_json("intune.json", [
+        {"id": "i1", "deviceName": "HP-LT-01", "azureADDeviceId": "n/a", "operatingSystem": "Windows"},
+    ])
+    with pytest.raises(AttestError, match="intune.json: row 1 field 'azureADDeviceId' must be a device GUID or null"):
+        intune_devices.read(intune)
+    mde = write_json("mde.json", [
+        {"id": "m1", "computerDnsName": "x", "aadDeviceId": 12, "onboardingStatus": "Onboarded",
+         "healthStatus": "Active", "lastSeen": None},
+    ])
+    with pytest.raises(AttestError, match="mde.json: row 1 field 'aadDeviceId' must be a device GUID or null"):
+        defender_machines.read(mde)
+
+
+def test_a_veeam_time_with_no_utc_offset_stops_the_run(write_json):
+    # A server east of UTC that wrote local time without an offset would look fresher than it is.
+    path = write_json("veeam.json", [
+        {"Email": "ann@firm.example", "IsMailboxBackedUp": True, "MailboxBackedUpTime": "2026-10-01T02:10:13"},
+    ])
+    with pytest.raises(AttestError, match="veeam.json: row 1 field 'MailboxBackedUpTime' has no UTC offset"):
+        veeam_users.read(path)
+
+
+def test_a_veeam_time_with_no_utc_offset_inside_the_value_wrapper_stops_the_run(write_json):
+    path = write_json("veeam.json", [
+        {"Email": "ann@firm.example", "IsMailboxBackedUp": True,
+         "MailboxBackedUpTime": {"value": "2026-10-01T02:10:13", "DisplayHint": 2}},
+    ])
+    with pytest.raises(AttestError, match="has no UTC offset"):
+        veeam_users.read(path)
+
+
+def test_a_veeam_time_with_an_offset_is_read_as_utc(write_json):
+    path = write_json("veeam.json", [
+        {"Email": "ann@firm.example", "IsMailboxBackedUp": True, "MailboxBackedUpTime": "2026-10-01T04:10:13+02:00"},
+        {"Email": "bob@firm.example", "IsMailboxBackedUp": True,
+         "MailboxBackedUpTime": {"value": "/Date(1790820613000)/", "DisplayHint": 2}},
+        {"Email": "cy@firm.example", "IsMailboxBackedUp": True,
+         "MailboxBackedUpTime": {"value": "2026-10-01T02:10:13Z", "DisplayHint": 2}},
+    ])
+    when = datetime(2026, 10, 1, 2, 10, 13, tzinfo=timezone.utc)
+    assert [u.mailbox_backed_up_time for u in veeam_users.read(path)] == [when, when, when]
+
+
+def test_an_empty_veeam_time_reads_as_never_backed_up(write_json):
+    path = write_json("veeam.json", [
+        {"Email": "ann@firm.example", "IsMailboxBackedUp": False, "MailboxBackedUpTime": ""},
+    ])
+    (ann,) = veeam_users.read(path)
+    assert ann.mailbox_backed_up_time is None
+
+
+def test_a_veeam_row_flagged_backed_up_with_no_time_is_read_as_it_stands(write_json):
+    # The reader only reports; the rule treats a mailbox with no time as never backed up.
+    path = write_json("veeam.json", [
+        {"Email": "ann@firm.example", "IsMailboxBackedUp": True, "MailboxBackedUpTime": None},
+    ])
+    (ann,) = veeam_users.read(path)
+    assert (ann.mailbox_backed_up, ann.mailbox_backed_up_time) == (True, None)
+
+
+def test_a_veeam_backed_up_flag_that_is_not_a_json_boolean_stops_the_run(write_json):
+    path = write_json("veeam.json", [
+        {"Email": "ann@firm.example", "IsMailboxBackedUp": "True", "MailboxBackedUpTime": None},
+    ])
+    with pytest.raises(AttestError, match="true or false"):
+        veeam_users.read(path)
+
+
+def test_a_veeam_row_without_an_email_stops_the_run(write_json):
+    path = write_json("veeam.json", [{"IsMailboxBackedUp": False, "MailboxBackedUpTime": None}])
+    with pytest.raises(AttestError, match="no field 'Email'"):
+        veeam_users.read(path)

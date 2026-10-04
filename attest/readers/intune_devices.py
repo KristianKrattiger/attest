@@ -10,15 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from attest.readers._json import load_records, require, require_str
-
-ZERO_GUID = "00000000-0000-0000-0000-000000000000"
-
-
-def normalize_device_id(value: object) -> Optional[str]:
-    """A lower-case Entra device ID, or None when the field is empty or the all-zero GUID."""
-    text = str(value or "").strip().lower()
-    return None if text in ("", ZERO_GUID) else text
+from attest.readers._json import device_id, load_records, require, require_str
 
 
 @dataclass(frozen=True)
@@ -36,8 +28,8 @@ def read(path: Path) -> tuple[IntuneDevice, ...]:
         IntuneDevice(
             id=require_str(r, "id", file, row),
             name=require_str(r, "deviceName", file, row),
-            aad_device_id=normalize_device_id(require(r, "azureADDeviceId", file, row)),
-            os=r.get("operatingSystem") or "",
+            aad_device_id=device_id(require(r, "azureADDeviceId", file, row), file, row, "azureADDeviceId"),
+            os=require(r, "operatingSystem", file, row) or "",
             cite=f"{file}:{row}",
         )
         for row, r in enumerate(load_records(path), start=1)

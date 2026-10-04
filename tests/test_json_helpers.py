@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 from attest.model import AttestError
-from attest.readers._json import load_records, parse_time, require, require_bool, require_str
+from attest.readers._json import device_id, load_records, parse_time, require, require_bool, require_str
 
 
 def _write(tmp_path, data, encoding="utf-8"):
@@ -100,3 +100,19 @@ def test_an_offset_time_is_converted_to_utc():
 def test_an_out_of_range_powershell_date_stops_the_run():
     with pytest.raises(AttestError, match="field 't' is not a time"):
         parse_time("/Date(99999999999999999)/", "f.json", 1, "t")
+
+
+@pytest.mark.parametrize("value, expected", [
+    (None, None),
+    ("", None),
+    ("00000000-0000-0000-0000-000000000000", None),
+    ("D0000000-0000-4000-8000-000000000001", "d0000000-0000-4000-8000-000000000001"),
+])
+def test_device_id_reads_a_guid_or_not_joined(value, expected):
+    assert device_id(value, "f.json", 1, "aadDeviceId") == expected
+
+
+@pytest.mark.parametrize("value", ["n/a", 12, 0, False, []])
+def test_device_id_refuses_anything_that_is_not_a_guid_or_null(value):
+    with pytest.raises(AttestError, match="f.json: row 2 field 'aadDeviceId' must be a device GUID or null"):
+        device_id(value, "f.json", 2, "aadDeviceId")

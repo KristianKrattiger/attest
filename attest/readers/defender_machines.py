@@ -12,8 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from attest.readers._json import load_records, parse_time, require, require_str
-from attest.readers.intune_devices import normalize_device_id
+from attest.readers._json import device_id, load_records, parse_time, require, require_str
 
 
 @dataclass(frozen=True)
@@ -41,7 +40,7 @@ def read(path: Path) -> tuple[Machine, ...]:
         machines.append(Machine(
             id=id_,
             name=name,
-            aad_device_id=normalize_device_id(r.get("aadDeviceId")),
+            aad_device_id=device_id(require(r, "aadDeviceId", file, row), file, row, "aadDeviceId"),
             onboarding=onboarding,
             health=health,
             last_seen=None if last_seen is None else parse_time(last_seen, file, row, "lastSeen"),

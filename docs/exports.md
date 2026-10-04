@@ -35,8 +35,18 @@ one page of several and the reader refuses it, because v1 does not page.
 ## Defender for Endpoint
 
 The Defender API needs a token from an Entra app registration granted
-`Machine.Read.All`. `Invoke-RestMethod` parses the JSON, so write it back with
-enough depth:
+`Machine.Read.All` (an application permission on WindowsDefenderATP). The
+secret belongs to the firm's own app registration and is entered by the firm's
+admin; it is never stored in the check's files. Get the token with the client
+credentials flow:
+
+```powershell
+$token = (Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token" -Body @{
+  client_id = $appId; client_secret = $secret; grant_type = 'client_credentials'
+  scope = 'https://api.securitycenter.microsoft.com/.default' }).access_token
+```
+
+`Invoke-RestMethod` parses the JSON, so write it back with enough depth:
 
 ```powershell
 Invoke-RestMethod -Uri 'https://api.security.microsoft.com/api/machines' -Headers @{ Authorization = "Bearer $token" } |
@@ -51,9 +61,13 @@ On the Veeam server, for the repository that holds the firm's mailboxes:
 
 ```powershell
 Get-VBOEntityData -Type User -Repository (Get-VBORepository -Name '<repository>') |
-  Select-Object Email, DisplayName, IsMailboxBackedUp, MailboxBackedUpTime |
+  Select-Object Email, DisplayName, IsMailboxBackedUp,
+    @{ Name = 'MailboxBackedUpTime'; Expression = { if ($_.MailboxBackedUpTime) { $_.MailboxBackedUpTime.ToUniversalTime().ToString('o') } } } |
   ConvertTo-Json | Out-File veeam-users.json -Encoding utf8
 ```
+
+The reader refuses a backup time with no UTC offset, because it would take that
+time as UTC and a server east of UTC would look fresher than it is.
 
 Reader `veeam_users`. One repository per export: a mailbox kept in another
 repository shows as missing, which is a gap and never a false backed. The field
