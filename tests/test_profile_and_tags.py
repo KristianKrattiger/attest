@@ -134,10 +134,24 @@ def test_a_tag_that_is_not_a_mapping_stops_the_run(tmp_path, entry):
     ("doc", "null"), ("doc", '""'), ("doc", "{a: b}"),
     ("control", "null"), ("control", "false"), ("control", '""'),
     ("scope", "null"), ("scope", "3"), ("scope", '""'),
+    # blank is not grounding: a space is a substring of nearly every document
+    ("quote", '" "'), ("quote", '"\\t"'), ("quote", '" \\t\\n "'), ("id", '" "'), ("doc", '" "'),
+    ("control", '" "'), ("scope", '"\\t"'),
 ])
 def test_a_tag_field_that_is_not_a_non_empty_string_stops_the_run(tmp_path, field, value):
     with pytest.raises(AttestError, match=f"tags.yaml: tag 1 field '{field}' must be a non-empty string"):
         load_tags(_firm(tmp_path, _tags(_entry(**{field: value}))), PROFILE)
+
+
+def test_a_quote_with_spaces_at_its_edges_is_stored_as_written(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(quote='" staff use "')))
+    assert load_tags(firm, PROFILE)[0].quote == " staff use "
+
+
+def test_a_quote_whose_edge_spaces_are_not_in_the_document_is_refused(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(quote='"All staff use MFA. "')))  # the document has a newline after it
+    with pytest.raises(AttestError, match="tag 'w1': quote is not an exact substring of attest/wisp.txt"):
+        load_tags(firm, PROFILE)
 
 
 def test_quoted_and_dashed_ids_are_strings_and_load(tmp_path):

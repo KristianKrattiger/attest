@@ -6,8 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import yaml
-
+from attest._yaml import read_yaml
 from attest.model import AttestError, Export
 from attest.readers import READERS
 from attest.readers._json import parse_time
@@ -52,16 +51,7 @@ def _manifest_entries(manifest: Path) -> list:
     """The raw entries of the manifest's 'exports' list; an empty manifest lists none."""
     if not manifest.is_file():
         raise AttestError(f"{manifest} not found")
-    try:
-        data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
-    except UnicodeDecodeError as e:
-        raise AttestError(f"manifest.yaml: not UTF-8 text ({e.reason})") from e
-    except yaml.YAMLError as e:
-        mark = getattr(e, "problem_mark", None)
-        where = f" (line {mark.line + 1})" if mark else ""
-        raise AttestError(f"manifest.yaml: not valid YAML{where}") from e
-    except ValueError as e:  # PyYAML's timestamp constructor: 2026-02-30 is a ValueError, not a YAMLError
-        raise AttestError(f"manifest.yaml: contains an impossible date or value ({e})") from e
+    data = read_yaml(manifest, "manifest.yaml")
     if data is None:
         return []
     if not isinstance(data, dict) or "exports" not in data:

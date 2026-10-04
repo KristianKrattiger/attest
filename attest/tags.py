@@ -48,7 +48,10 @@ def _tag_entries(path: Path) -> list:
 
 
 def _checked_tag(entry: object, i: int) -> Tag:
-    """One entry as a Tag: a mapping of exactly the five fields, each a non-empty string."""
+    """One entry as a Tag: a mapping of exactly the five fields, each a string with some non-blank text.
+
+    The values are stored as written (a quote keeps its edge spaces). A blank one is refused because whitespace
+    is a substring of nearly every document, so it would be "grounded" while quoting nothing."""
     if not isinstance(entry, dict):
         raise AttestError(f"tags.yaml: tag {i} must be a mapping")
     for field in FIELDS:
@@ -58,7 +61,7 @@ def _checked_tag(entry: object, i: int) -> Tag:
         if key not in FIELDS:
             raise AttestError(f"tags.yaml: tag {i} has unknown key {key!r}")
     for field in FIELDS:
-        if not isinstance(entry[field], str) or not entry[field]:
+        if not isinstance(entry[field], str) or not entry[field].strip():
             raise AttestError(f"tags.yaml: tag {i} field {field!r} must be a non-empty string")
     return Tag(*(entry[field] for field in FIELDS))
 
