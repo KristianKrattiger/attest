@@ -40,6 +40,13 @@ BASE = {
     ({"operator": "AND", "builtInControls": ["MFA", "CompliantDevice"]}, True),
     ({"operator": "OR", "builtInControls": [], "authenticationStrength": PASSWORDLESS_STRENGTH}, True),
     ({"operator": "OR", "builtInControls": [], "authenticationStrength": PHISHING_RESISTANT_STRENGTH}, True),
+    ({"operator": "OR", "builtInControls": ["mfa"], "newAlternative": ["x"]}, False),
+    ({"operator": "AND", "builtInControls": ["mfa"], "newAlternative": ["x"]}, True),
+    ({"operator": "OR", "builtInControls": ["mfa"], "newAlternative": {"x": 1}}, False),
+    ({"operator": "OR", "builtInControls": ["mfa"], "newAlternative": None}, True),
+    ({"operator": "OR", "builtInControls": ["mfa"], "newAlternative": []}, True),
+    ({"operator": "OR", "builtInControls": ["mfa"], "newAlternative": {}}, True),
+    ({"operator": "OR", "builtInControls": ["mfa"], "@odata.type": "#microsoft.graph.g"}, True),
 ])
 def test_requires_mfa_only_when_every_way_through_takes_mfa(grant, expected):
     assert requires_mfa(grant) is expected
@@ -89,6 +96,10 @@ def test_an_empty_devices_object_does_not_narrow():
      "unknown condition applications.someNewFilter"),
     ({"users": {"includeUsers": ["All"], "someNewExclusion": ["u1"]}},
      "unknown condition users.someNewExclusion"),
+    ({"locations": {"includeLocations": ["All"], "newLocationFilter": {"x": 1}}},
+     "unknown condition locations.newLocationFilter"),
+    ({"platforms": {"includePlatforms": ["all"], "newPlatformFilter": ["x"]}},
+     "unknown condition platforms.newPlatformFilter"),
 ])
 def test_each_narrowing_condition_is_named(change, name):
     assert name in narrowing_conditions({**BASE, **change})
@@ -99,7 +110,9 @@ def test_each_narrowing_condition_is_named(change, name):
     lambda empty: {"deviceStates": empty},
     lambda empty: {"applications": {"includeApplications": ["All"], "someNewFilter": empty}},
     lambda empty: {"users": {"includeUsers": ["All"], "someNewExclusion": empty}},
-], ids=["conditions", "applications", "users"])
+    lambda empty: {"locations": {"includeLocations": ["All"], "newLocationFilter": empty}},
+    lambda empty: {"platforms": {"includePlatforms": ["all"], "newPlatformFilter": empty}},
+], ids=["conditions", "applications", "users", "locations", "platforms"])
 def test_an_unknown_condition_with_nothing_in_it_does_not_narrow(change, empty):
     assert narrowing_conditions({**BASE, **change(empty)}) == ()
 
@@ -107,7 +120,9 @@ def test_an_unknown_condition_with_nothing_in_it_does_not_narrow(change, empty):
 def test_odata_annotations_never_narrow():
     conditions = {**BASE, "@odata.context": "ctx",
                   "applications": {"includeApplications": ["All"], "@odata.type": "#microsoft.graph.x"},
-                  "users": {"includeUsers": ["All"], "@odata.type": "#microsoft.graph.y"}}
+                  "users": {"includeUsers": ["All"], "@odata.type": "#microsoft.graph.y"},
+                  "locations": {"includeLocations": ["All"], "@odata.type": "#microsoft.graph.z"},
+                  "platforms": {"includePlatforms": ["all"], "@odata.type": "#microsoft.graph.w"}}
     assert narrowing_conditions(conditions) == ()
 
 
@@ -205,20 +220,33 @@ def _users(**fields):
     (_users(excludeGuestsOrExternalUsers={"guestOrExternalUserTypes": ["internalGuest"]}), GOOD_GRANT),
     ({**BASE, "applications": {"includeApplications": "All"}}, GOOD_GRANT),
     ({**BASE, "clientAppTypes": "all"}, GOOD_GRANT),
+    ({**BASE, "locations": {"includeLocations": [None]}}, GOOD_GRANT),
+    ({**BASE, "locations": {"includeLocations": "All"}}, GOOD_GRANT),
+    ({**BASE, "locations": {"includeLocations": ["All"], "excludeLocations": "loc-1"}}, GOOD_GRANT),
+    ({**BASE, "platforms": {"includePlatforms": "all"}}, GOOD_GRANT),
+    ({**BASE, "platforms": {"includePlatforms": ["all"], "excludePlatforms": 5}}, GOOD_GRANT),
+    (BASE, {"operator": "OR", "builtInControls": ["mfa"], "termsOfUse": 5}),
+    (BASE, {"operator": "OR", "builtInControls": ["mfa"], "customAuthenticationFactors": "x"}),
 ], ids=["excludeUsers-string", "builtInControls-string", "locations-list", "grantControls-list",
         "operator-number", "clientAppTypes-None-item", "clientAppTypes-missing", "users-string",
         "applications-list", "platforms-string", "builtInControls-number-item", "includeUsers-string",
         "excludeGroups-string", "includeRoles-string", "excludeRoles-number-item",
-        "excludeGuests-string", "guestTypes-list", "includeApplications-string", "clientAppTypes-string"])
+        "excludeGuests-string", "guestTypes-list", "includeApplications-string", "clientAppTypes-string",
+        "includeLocations-None-item", "includeLocations-string", "excludeLocations-string",
+        "includePlatforms-string", "excludePlatforms-number", "termsOfUse-number",
+        "customAuthenticationFactors-string"])
 def test_malformed_policy_json_stops_the_run_with_file_and_row(write_json, conditions, grant):
     path = _one_policy(write_json, conditions, grant)
     with pytest.raises(AttestError, match=r"ca\.json: row 1"):
         read(path)
 
 
-def test_a_null_client_app_types_reads_as_all(write_json):
-    path = _one_policy(write_json, {**BASE, "clientAppTypes": None})
-    assert read(path)[0].narrowing == ()
+@pytest.mark.parametrize("empty", [None, []], ids=["null", "empty-list"])
+def test_a_client_app_types_with_nothing_in_it_stops_the_run(write_json, empty):
+    path = _one_policy(write_json, {**BASE, "clientAppTypes": empty})
+    with pytest.raises(AttestError,
+                       match=r"ca\.json: row 1 field 'clientAppTypes' must name at least one client app type"):
+        read(path)
 
 
 def test_null_objects_and_lists_read_as_empty(write_json):

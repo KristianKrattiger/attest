@@ -12,11 +12,14 @@ wrongly counted could back an attestation that is false, while a policy
 wrongly discounted can only cost a false gap.
 
 Narrowing is an allow-list that fails closed: only the condition keys named
-here are understood, and any other key that carries a value narrows, as
-"unknown condition <key>". The users the policy leaves out are recorded for
-the rules, including the guest and external user exclusion
-(`exclude_guest_types`). Input of the wrong shape stops the run with the file
-and row named; it is never guessed around.
+here are understood (in the conditions, and inside users, applications,
+locations and platforms), and any other key that carries a value narrows, as
+"unknown condition <key>". The same holds for the grant: a key it does not
+know counts as another way through, so it cannot back an MFA claim. The users
+the policy leaves out are recorded for the rules, including the guest and
+external user exclusion (`exclude_guest_types`). Input of the wrong shape, or
+no client app types at all, stops the run with the file and row named; it is
+never guessed around.
 """
 from __future__ import annotations
 
@@ -33,6 +36,12 @@ MFA_STRENGTH_IDS = frozenset({
     "00000000-0000-0000-0000-000000000002",
     "00000000-0000-0000-0000-000000000003",
     "00000000-0000-0000-0000-000000000004",
+})
+
+# The grant control keys this reader understands. Any other key that carries a
+# value is a way through the grant it cannot judge, so it counts as an alternative.
+_GRANT_KEYS = frozenset({
+    "operator", "builtInControls", "customAuthenticationFactors", "termsOfUse", "authenticationStrength",
 })
 
 
@@ -73,6 +82,7 @@ def requires_mfa(grant: dict | None) -> bool:
     alternatives = [c for c in controls if c != "mfa"]
     alternatives += list(grant.get("customAuthenticationFactors") or [])
     alternatives += list(grant.get("termsOfUse") or [])
+    alternatives += _unknown(grant, _GRANT_KEYS)
     if strength and not strength_is_mfa:
         alternatives.append("authenticationStrength")
     return (grant.get("operator") or "OR").upper() == "AND" or not alternatives
@@ -116,10 +126,19 @@ _USER_KEYS = frozenset({
 })
 
 
-def _unknown_keys(obj: dict, known: frozenset[str], prefix: str) -> list[str]:
-    """Names of keys outside the allow-list that carry a value, as "unknown condition <prefix><key>"."""
-    return [f"unknown condition {prefix}{key}" for key, value in obj.items()
+_LOCATION_KEYS = frozenset({"includeLocations", "excludeLocations"})
+_PLATFORM_KEYS = frozenset({"includePlatforms", "excludePlatforms"})
+
+
+def _unknown(obj: dict, known: frozenset[str]) -> list[str]:
+    """Keys outside the allow-list (and not @odata annotations) that carry a value."""
+    return [key for key, value in obj.items()
             if key not in known and not key.startswith("@odata") and _is_set(value)]
+
+
+def _unknown_keys(obj: dict, known: frozenset[str], prefix: str) -> list[str]:
+    """The unknown keys named as "unknown condition <prefix><key>"."""
+    return [f"unknown condition {prefix}{key}" for key in _unknown(obj, known)]
 
 
 def narrowing_conditions(conditions: dict) -> tuple[str, ...]:
@@ -148,6 +167,8 @@ def narrowing_conditions(conditions: dict) -> tuple[str, ...]:
             found.append(f"applications.{key}")
     found += _unknown_keys(applications, _APPLICATION_KEYS, "applications.")
     found += _unknown_keys(conditions.get("users") or {}, _USER_KEYS, "users.")
+    found += _unknown_keys(conditions.get("locations") or {}, _LOCATION_KEYS, "locations.")
+    found += _unknown_keys(conditions.get("platforms") or {}, _PLATFORM_KEYS, "platforms.")
     return tuple(found)
 
 
@@ -199,7 +220,8 @@ def _grant(value: Any, file: str, row: int) -> dict:
     """The grant controls, checked for the shapes requires_mfa reads."""
     grant = _object(value, file, row, "grantControls")
     _text(grant.get("operator"), file, row, "grantControls.operator")
-    _strings(grant.get("builtInControls"), file, row, "grantControls.builtInControls")
+    for key in ("builtInControls", "customAuthenticationFactors", "termsOfUse"):
+        _strings(grant.get(key), file, row, f"grantControls.{key}")
     return grant
 
 
@@ -212,9 +234,16 @@ def read(path: Path) -> tuple[CaPolicy, ...]:
             raise AttestError(f"{file}: row {row} field 'conditions' must be an object")
         users = _object(conditions.get("users"), file, row, "conditions.users")
         applications = _object(conditions.get("applications"), file, row, "conditions.applications")
-        _object(conditions.get("locations"), file, row, "conditions.locations")
-        _object(conditions.get("platforms"), file, row, "conditions.platforms")
-        _strings(require(conditions, "clientAppTypes", file, row), file, row, "conditions.clientAppTypes")
+        locations = _object(conditions.get("locations"), file, row, "conditions.locations")
+        platforms = _object(conditions.get("platforms"), file, row, "conditions.platforms")
+        for name in ("includeLocations", "excludeLocations"):
+            _strings(locations.get(name), file, row, f"conditions.locations.{name}")
+        for name in ("includePlatforms", "excludePlatforms"):
+            _strings(platforms.get(name), file, row, f"conditions.platforms.{name}")
+        client_app_types = _strings(require(conditions, "clientAppTypes", file, row), file, row,
+                                    "conditions.clientAppTypes")
+        if not client_app_types:  # Graph marks it Required: nothing in it is missing evidence, not "all"
+            raise AttestError(f"{file}: row {row} field 'clientAppTypes' must name at least one client app type")
         include_users = _strings(users.get("includeUsers"), file, row, "conditions.users.includeUsers")
         exclude_users = _strings(users.get("excludeUsers"), file, row, "conditions.users.excludeUsers")
         exclude_groups = _strings(users.get("excludeGroups"), file, row, "conditions.users.excludeGroups")
