@@ -123,20 +123,35 @@ within 7 days") is measured against it.
 
 ### Exports (v1)
 
-| Export | Source | Format | Used for |
-|---|---|---|---|
-| Users | Entra admin center, "Download users" | CSV | population of accounts |
-| Conditional Access policies | Microsoft Graph `GET /identity/conditionalAccess/policies` | JSON | MFA enforcement |
-| Security defaults | Microsoft Graph `GET /policies/identitySecurityDefaultsEnforcementPolicy` | JSON | MFA enforcement |
-| User registration details | Entra admin center, Authentication methods, "User registration details", Download | CSV (`UserPrincipalName`, `IsAdmin`, `IsMfaRegistered`, `IsMfaCapable`, `MethodsRegistered`, ...) | MFA registration |
-| Admin role assignments | Entra admin center, Roles and administrators, download assignments | CSV | population of admin accounts |
-| Managed devices | Intune admin center, Devices, All devices, Export | CSV | population of endpoints |
-| Device inventory | Defender portal, Device inventory, Export | CSV (onboarding status, health state, last seen) | EDR state |
-| Mailbox Protection Report | Veeam Backup for Microsoft 365 (`Get-VBOMailboxProtectionReport` or the console's report, CSV) | CSV (mailbox, protection status, last backup) | mailbox backup state |
+*Amended 2026-10-04 during planning.* The first draft named portal CSV
+downloads. Microsoft does not document those column headers; it documents
+the API resources exactly. Every Microsoft export is therefore the JSON of
+a documented API call, which the firm runs read-only (Microsoft Graph
+PowerShell or Graph Explorer) while the reviewer watches. Each reader
+accepts a bare JSON list, a single object, or a Graph/Defender page
+`{"value": [...]}`, in UTF-8 or the UTF-16 that Windows PowerShell 5.1
+writes by default.
 
-The plan pins every reader's exact column headers from the vendors'
-documentation and records the doc page next to each reader. The dev firm's
-files use those headers.
+| Reader | Source | Fields used | Used for |
+|---|---|---|---|
+| `entra_users` | Graph `GET /users?$select=id,userPrincipalName,displayName,accountEnabled,userType` ([user](https://learn.microsoft.com/en-us/graph/api/resources/user?view=graph-rest-1.0)) | `id`, `userPrincipalName`, `displayName`, `accountEnabled`, `userType` | population of accounts |
+| `entra_registration` | Graph `GET /reports/authenticationMethods/userRegistrationDetails` ([userRegistrationDetails](https://learn.microsoft.com/en-us/graph/api/resources/userregistrationdetails?view=graph-rest-1.0)) | `id`, `userPrincipalName`, `isMfaRegistered` | MFA registration |
+| `entra_ca_policies` | Graph `GET /identity/conditionalAccess/policies` ([conditionalAccessPolicy](https://learn.microsoft.com/en-us/graph/api/resources/conditionalaccesspolicy?view=graph-rest-1.0)) | `id`, `displayName`, `state`, `conditions`, `grantControls` | MFA enforcement |
+| `entra_security_defaults` | Graph `GET /policies/identitySecurityDefaultsEnforcementPolicy` | `isEnabled` | MFA enforcement |
+| `entra_role_assignments` | Graph `GET /roleManagement/directory/roleAssignments?$expand=principal` ([unifiedRoleAssignment](https://learn.microsoft.com/en-us/graph/api/resources/unifiedroleassignment?view=graph-rest-1.0)) | `principalId`, `roleDefinitionId`, `directoryScopeId`, `principal` (`@odata.type`, `userPrincipalName`, `displayName`) | population of admin accounts; excluded roles |
+| `intune_devices` | Graph `GET /deviceManagement/managedDevices` ([managedDevice](https://learn.microsoft.com/en-us/graph/api/resources/intune-devices-manageddevice?view=graph-rest-1.0)) | `id`, `deviceName`, `azureADDeviceId`, `operatingSystem` | population of endpoints |
+| `defender_machines` | Defender for Endpoint API `GET /api/machines` ([Machine](https://learn.microsoft.com/en-us/defender-endpoint/api/machine)) | `id`, `computerDnsName`, `aadDeviceId`, `onboardingStatus`, `healthStatus`, `lastSeen` | EDR state |
+| `veeam_users` | Veeam Backup for Microsoft 365 PowerShell: `Get-VBOEntityData -Type User -Repository <repo>`, selected and `ConvertTo-Json` | `Email`, `IsMailboxBackedUp`, `MailboxBackedUpTime` | mailbox backup state |
+
+The `veeam_users` field names come from Veeam's published PowerShell
+examples, not its reference documentation; the documented REST form of the
+same data carries no backup timestamps, so it cannot prove a daily backup.
+**The first real export must be checked against these names before any
+paid check relies on this reader.** A reader that finds a field missing
+stops the run, so a mismatch is loud, never silent.
+
+`docs/exports.md` in the repo gives, per reader, the command that produces
+the export and the documentation page for its fields.
 
 ### Populations
 
@@ -144,6 +159,10 @@ files use those headers.
   disabled accounts are excluded and listed in the report as excluded.
 - **Admin accounts:** principals holding an admin role, from the
   role-assignments export, never from the `IsAdmin` column of the evidence.
+  Any assignment counts, tenant-wide or scoped. A role held by a group
+  makes `mfa.admins` **unchecked** (its members are unknown in v1); so does
+  a user principal missing from the users export. Disabled holders are not
+  counted. Service principals are not accounts and are not counted.
 - **Endpoints:** devices from the Intune export.
 
 A population never comes from the export that supplies the evidence for
@@ -159,6 +178,33 @@ the same verdict.
 | `mfa.email` | As `mfa.all_users`, with the policy's applications All or Office 365. | As above. |
 | `mfa.admins` | As `mfa.all_users` over the admin-account population; a policy that includes those admin roles also counts as enforcement. | As above, plus **unchecked** when the role-assignments export is missing. |
 | `mfa.remote_access` | Never in this stack. | Always **unchecked**: "no export in this stack shows VPN or firewall MFA". |
+
+*Amended 2026-10-04 during planning.* What "requires MFA" and "applies to
+all users" mean, from the documented Conditional Access resources:
+
+- **Requires MFA.** The grant controls contain `mfa`, or an authentication
+  strength that is one of Microsoft's three built-in MFA strengths
+  (Multifactor authentication, Passwordless MFA, Phishing-resistant MFA);
+  and either the operator is `AND` or there is no alternative control. A
+  grant of "MFA **or** a compliant device" (operator `OR`) does not require
+  MFA: a compliant device satisfies it alone. A policy whose controls
+  include `block` does not count.
+- **No narrowing condition.** A policy counts only if nothing limits when
+  it applies beyond its users and applications: no client app types other
+  than `all`, no location include other than All and no location exclude
+  (the "MFA except at the office" case), no platform include other than
+  all and no platform exclude, no device filter, no sign-in, user,
+  service-principal or insider risk levels, no authentication flows, no
+  client applications, and no excluded applications, application filter,
+  user actions or authentication contexts.
+- **Security defaults** count as enforcement, as decided in the
+  brainstorm. The report states what that means: Microsoft prompts for MFA
+  when it judges it necessary, not on every sign-in.
+- **An empty population** (an export with no counted accounts or devices)
+  is **unchecked**, never a vacuous **backed**.
+- **Enforcement unknown:** when no Conditional Access policy enforces MFA
+  and there is no security-defaults export to rule security defaults out,
+  the verdict is **unchecked**, not **gap**.
 
 Excluded roles are resolved to accounts through the role-assignments
 export. Excluded groups cannot be resolved in v1 (no group-membership
