@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -238,9 +239,11 @@ def test_an_absolute_document_path_outside_the_firm_folder_is_refused(tmp_path):
         load_tags(firm, PROFILE)
 
 
-def test_a_roundabout_path_that_stays_inside_the_firm_folder_still_loads(tmp_path):
+def test_a_roundabout_path_that_stays_inside_the_firm_folder_is_refused_naming_the_canonical_form(tmp_path):
     firm = _firm(tmp_path, _tags(_entry(doc="attest/../attest/wisp.txt")))
-    assert [t.id for t in load_tags(firm, PROFILE)] == ["w1"]
+    message = "tags.yaml: tag 'w1' names 'attest/../attest/wisp.txt'; write it as 'attest/wisp.txt'"
+    with pytest.raises(AttestError, match=re.escape(message)):
+        load_tags(firm, PROFILE)
 
 
 @pytest.mark.parametrize("doc", [
@@ -547,3 +550,28 @@ def test_a_quote_ending_in_its_line_s_newline_touches_only_that_line(tmp_path):
 def test_a_span_does_not_change_which_tag_a_tag_is():
     assert Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users", Span(1, 1, ("x",))) == Tag(
         "w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+
+
+# One document has one name (third review G1): attestations group tags by document, so a tag that names its document
+# another way (a "." part, a backslash, other letter case) would split one passage into two attestations.
+
+WINDOWS_ONLY = pytest.mark.skipif(sys.platform != "win32", reason="a Windows path spelling")
+
+
+@pytest.mark.parametrize("doc, written", [
+    ('"attest/./wisp.txt"', "attest/./wisp.txt"),
+    pytest.param('"attest\\\\wisp.txt"', "attest\\wisp.txt", marks=WINDOWS_ONLY),
+    pytest.param('"attest/WISP.txt"', "attest/WISP.txt", marks=WINDOWS_ONLY),  # Windows file names ignore case
+])
+def test_a_document_written_other_than_its_canonical_form_is_refused(tmp_path, doc, written):
+    second = _entry(id="w2", quote="Every laptop runs EDR.", control="edr", scope="all_endpoints", doc=doc)
+    firm = _firm(tmp_path, _tags(_entry(), second))
+    message = f"tags.yaml: tag 'w2' names {written!r}; write it as 'attest/wisp.txt'"
+    with pytest.raises(AttestError, match=re.escape(message)):
+        load_tags(firm, PROFILE)
+
+
+def test_a_document_written_in_its_canonical_form_loads(tmp_path):
+    second = _entry(id="w2", quote="Every laptop runs EDR.", control="edr", scope="all_endpoints")
+    firm = _firm(tmp_path, _tags(_entry(), second))
+    assert [(t.id, t.doc) for t in load_tags(firm, PROFILE)] == [("w1", "attest/wisp.txt"), ("w2", "attest/wisp.txt")]

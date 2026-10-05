@@ -484,6 +484,14 @@ sections above, these win. Each line says what the tool does, then why.
   leading byte-order mark is dropped and line endings are read as LF. Why:
   `tags.yaml`, the exports and an earlier report hold the very quotes they
   would be asked to ground.
+- A tag must name its document in one canonical form, its resolved path
+  relative to the firm folder in forward slashes and on-disk letter case
+  (`attest/wisp.txt`); any other spelling (`attest/./wisp.txt`,
+  `attest\wisp.txt`, `attest/WISP.txt`, `attest/../attest/wisp.txt`) is
+  refused, naming the form to write, and never rewritten (third review G1).
+  Why: attestations group tags by document, so one document under two names
+  split one passage into two attestations, and a clause on a provable scope
+  came out backed on its own.
 - Every field must be a string with a letter or digit in it, and an id, doc,
   control or scope must not begin or end with whitespace or an invisible
   character. Why: a blank or invisible value grounds in nearly any document,

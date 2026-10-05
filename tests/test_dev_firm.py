@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from attest.__main__ import main
 from attest.compare import check, run
 from attest.model import AttestError
 from attest.report import attestations, combined_status, render
@@ -215,3 +216,27 @@ def test_a_compound_sentence_tagged_by_clause_is_one_unchecked_attestation_quoti
     for ids, line in compound.items():
         assert f"> {line}" in sections[f"{ids}: UNCHECKED"]
     assert "\nbacked 6, gap 0, unchecked 6\n" in text
+
+
+def _redoc(docs):
+    """An edit of the copy's tags.yaml: each tag named in docs gets that document path."""
+    def apply(exports):
+        path = exports.parent / "tags.yaml"
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for tag in data["tags"]:
+            tag["doc"] = docs.get(tag["id"], tag["doc"])
+        assert set(docs) <= {tag["id"] for tag in data["tags"]}
+        path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return apply
+
+
+def test_a_compound_line_s_second_tag_naming_its_document_another_way_stops_the_run(tmp_path, capsys):
+    # Third review G1: under its own spelling of wisp.txt, the files tag was a separate attestation, and the backup
+    # line came out BACKED on its own.
+    firm = _copy(tmp_path, *HEAL, _redoc({"wisp-backup-files": "attest/./wisp.txt"}))
+    assert main(["check", str(firm)]) == 2
+    error = "tags.yaml: tag 'wisp-backup-files' names 'attest/./wisp.txt'; write it as 'attest/wisp.txt'"
+    assert f"attest: {error}" in capsys.readouterr().err
+    report = (firm / "report.md").read_text(encoding="utf-8")
+    assert report == f"# Attestation check: dev\n\nCHECK FAILED: {error}\n"
+    assert "BACKED" not in report

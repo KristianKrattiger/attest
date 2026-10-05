@@ -43,8 +43,11 @@ tags:
 ```
 
 Each tag has exactly these fields: `id` (unique), `doc` (a file under
-`attest/`), `quote` (the attested words, exactly as the document has them),
-and `control` and `scope` (a pair from `profile/controls.yaml`).
+`attest/`, written as its path from the firm folder with forward slashes and
+the file's own letter case, such as `attest/wisp.txt`; any other spelling,
+such as `attest/./wisp.txt` or `attest/WISP.txt`, is refused), `quote` (the
+attested words, exactly as the document has them), and `control` and `scope`
+(a pair from `profile/controls.yaml`).
 
 - **Every claim in a quote gets a tag.** Several tags may share one quote, as
   above, or quote different clauses of one passage. A claim no export speaks

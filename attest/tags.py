@@ -114,14 +114,18 @@ def _check_in_profile(tag: Tag, profile: Profile) -> None:
 
 
 def _document_text(firm: Path, tag: Tag) -> str:
-    """The text of the tag's document: an existing UTF-8 regular file under firm/attest/.
+    """The text of the tag's document: an existing UTF-8 regular file under firm/attest/, named in its one form.
 
     Any other file in the firm folder (tags.yaml, truth.yaml, exports/*, a previous run's report.md) holds the
-    very quotes it would be asked to ground, so only attestation documents may be quoted."""
+    very quotes it would be asked to ground, so only attestation documents may be quoted. The document must be
+    named as its resolved path relative to the firm folder, in forward slashes and its on-disk letter case:
+    attestations group tags by document, so one document under two names ("attest/./wisp.txt", "attest/WISP.txt")
+    would split one passage into two attestations. It is refused, not rewritten, so the report shows the firm's
+    own words."""
     path = firm / tag.doc
     where = f"tags.yaml: tag {tag.id!r}: document {tag.doc}"
     try:
-        resolved = path.resolve()
+        resolved = path.resolve()  # on Windows this also gives the on-disk letter case of a file that exists
         inside = resolved.is_relative_to(firm.resolve())
         under_attest = resolved.is_relative_to((firm / ATTEST_DIR).resolve())
     except (OSError, ValueError) as e:  # e.g. a NUL in the name
@@ -130,6 +134,9 @@ def _document_text(firm: Path, tag: Tag) -> str:
         raise AttestError(f"{where} is outside the firm folder")
     if not under_attest:
         raise AttestError(f"{where} is not under {ATTEST_DIR}/")
+    canonical = resolved.relative_to(firm.resolve()).as_posix()
+    if tag.doc != canonical:
+        raise AttestError(f"tags.yaml: tag {tag.id!r} names {tag.doc!r}; write it as {canonical!r}")
     try:
         if not path.exists():
             raise AttestError(f"{where} not found")
