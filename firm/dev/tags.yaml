@@ -1,5 +1,7 @@
 # Confirmed tags for the dev firm. Answer 4.7 ("No") is a disclosure, not an
-# attestation, so it is not tagged.
+# attestation, so it is not tagged. Every claim in a quote gets a tag: the two
+# WISP lines that make two claims carry two tags each, and the line's verdict
+# is the worse of them.
 tags:
   - id: app-4.1
     doc: attest/application.txt
@@ -51,11 +53,21 @@ tags:
     quote: "Every company laptop runs Microsoft Defender for Business, which is monitored for alerts."
     control: edr
     scope: all_endpoints
+  - id: wisp-edr-alerts
+    doc: attest/wisp.txt
+    quote: "Every company laptop runs Microsoft Defender for Business, which is monitored for alerts."
+    control: edr
+    scope: alert_monitoring
   - id: wisp-backup
     doc: attest/wisp.txt
     quote: "Email and files in Microsoft 365 are backed up every night with Veeam."
     control: backup
     scope: m365_mailboxes
+  - id: wisp-backup-files
+    doc: attest/wisp.txt
+    quote: "Email and files in Microsoft 365 are backed up every night with Veeam."
+    control: backup
+    scope: m365_files
   - id: wisp-immutable
     doc: attest/wisp.txt
     quote: "Backups are kept on immutable storage that cannot be altered or deleted."

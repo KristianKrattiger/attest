@@ -58,6 +58,7 @@ def backup_m365_mailboxes(evidence: Evidence) -> Verdict:
     return Verdict("backed", reason, cited=(users.file, veeam.file), population=description)
 
 
+backup_m365_files = never("no export in v1 shows OneDrive or SharePoint backups")
 backup_servers = never("no export in v1 speaks to server backups")
 backup_offline_copy = never("no export in v1 speaks to offline or immutable backup copies")
 backup_restore_tested = never("no export in v1 speaks to restore tests")

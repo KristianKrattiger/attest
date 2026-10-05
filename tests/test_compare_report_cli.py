@@ -9,7 +9,7 @@ import attest.__main__ as cli
 from attest.__main__ import main
 from attest.compare import check
 from attest.model import Tag, Verdict
-from attest.report import render
+from attest.report import attestations, combined_status, render
 
 ANN = "a0000000-0000-4000-8000-000000000001"
 USERS = {"value": [{"id": ANN, "userPrincipalName": "ann@firm.example", "displayName": "Ann",
@@ -218,7 +218,7 @@ def test_a_console_that_cannot_show_the_report_still_gets_it_and_the_file_keeps_
 
 
 def test_a_console_that_cannot_show_the_error_still_gets_it(firm, monkeypatch):
-    (firm / "tags.yaml").write_text("tags:\n  - {id: w1, doc: attest/≥.txt, quote: x, control: mfa, "
+    (firm / "tags.yaml").write_text("tags:\n  - {id: w1, doc: attest/≥.txt, quote: All staff use MFA., control: mfa, "
                                     "scope: all_users}\n", encoding="utf-8")
     raw, stream = console()
     monkeypatch.setattr(sys, "stderr", stream)
@@ -372,3 +372,84 @@ def test_the_tools_own_earlier_report_is_replaced_even_when_tags_yaml_is_gone(fi
     assert main(["check", str(firm)]) == 2
     report = (firm / "report.md").read_text(encoding="utf-8")
     assert report.startswith("# Attestation check: tiny\n\nCHECK FAILED: ") and "BACKED" not in report
+
+
+# Several tags on one quote: one section per attestation, headed by the worst of its tags' verdicts.
+
+QUOTE = "All staff use MFA."
+BACKED = Verdict("backed", "all 2 accounts registered", cited=("registration.json",),
+                 population="2 enabled member accounts from users.json")
+GAP = Verdict("gap", "not registered for MFA: bob@firm.example", ("bob@firm.example",), ("registration.json:2",),
+              "2 enabled member accounts from users.json")
+UNCHECKED = Verdict("unchecked", "no export in this stack shows VPN or firewall MFA")
+
+
+def tag(id_, scope, quote=QUOTE, control="mfa"):
+    return Tag(id_, "attest/wisp.txt", quote, control, scope)
+
+
+def headings(text):
+    return [line for line in text.splitlines() if line.startswith("#")]
+
+
+def test_two_tags_on_one_quote_render_one_section_with_both_tags():
+    text = render("tiny", [(tag("w1", "all_users"), BACKED), (tag("w2", "remote_access"), UNCHECKED)])
+    assert headings(text) == ["# Attestation check: tiny", "## w1, w2: UNCHECKED"]
+    assert text.count("> All staff use MFA.") == 1
+    section = text.split("## w1, w2: UNCHECKED\n")[1]
+    assert section == (
+        "\n> All staff use MFA.\n\n"
+        "- document: `attest/wisp.txt`\n"
+        "- tag w1: BACKED\n"
+        "  - control: `mfa.all_users`\n"
+        "  - reason: all 2 accounts registered\n"
+        "  - population: 2 enabled member accounts from users.json\n"
+        "  - cited: `registration.json`\n"
+        "- tag w2: UNCHECKED\n"
+        "  - control: `mfa.remote_access`\n"
+        "  - reason: no export in this stack shows VPN or firewall MFA\n")
+
+
+@pytest.mark.parametrize("verdicts, heading", [
+    ((BACKED, UNCHECKED), "UNCHECKED"), ((UNCHECKED, BACKED), "UNCHECKED"),
+    ((GAP, UNCHECKED), "GAP"), ((UNCHECKED, GAP), "GAP"), ((BACKED, GAP), "GAP"),
+    ((BACKED, BACKED), "BACKED"),
+])
+def test_an_attestation_is_headed_by_the_worst_verdict_of_its_tags(verdicts, heading):
+    first, second = verdicts
+    text = render("tiny", [(tag("w1", "all_users"), first), (tag("w2", "email"), second)])
+    assert headings(text)[1:] == [f"## w1, w2: {heading}"]
+    assert f"- tag w1: {first.status.upper()}" in text and f"- tag w2: {second.status.upper()}" in text
+
+
+def test_the_count_line_counts_attestations_not_tags():
+    other = "Remote access uses a VPN with MFA."
+    results = [(tag("w1", "all_users"), BACKED), (tag("w2", "remote_access"), UNCHECKED),
+               (tag("w3", "all_users", quote=other), BACKED)]
+    assert "\nbacked 1, gap 0, unchecked 1\n" in render("tiny", results)
+
+
+def test_attestations_keep_the_order_each_quote_first_appears_in():
+    other = "Remote access uses a VPN with MFA."
+    results = [(tag("w1", "all_users"), BACKED), (tag("w2", "remote_access", quote=other), UNCHECKED),
+               (tag("w3", "email"), GAP)]
+    assert [(quote, [t.id for t, _ in tagged]) for _, quote, tagged in attestations(results)] == [
+        (QUOTE, ["w1", "w3"]), (other, ["w2"])]
+    assert headings(render("tiny", results))[1:] == ["## w1, w3: GAP", "## w2: UNCHECKED"]
+
+
+@pytest.mark.parametrize("statuses, combined", [
+    (["backed"], "backed"), (["backed", "backed"], "backed"), (["backed", "unchecked"], "unchecked"),
+    (["unchecked", "gap", "backed"], "gap"), (["gap"], "gap"), (["unchecked"], "unchecked"),
+])
+def test_the_combined_verdict_is_the_worst(statuses, combined):
+    assert combined_status(statuses) == combined
+
+
+def test_the_cli_counts_a_quote_with_two_tags_once(firm, capsys):
+    (firm / "tags.yaml").write_text(TAGS + "  - {id: w1b, doc: attest/wisp.txt, quote: All staff use MFA., "
+                                           "control: mfa, scope: remote_access}\n", encoding="utf-8")
+    assert main(["check", str(firm)]) == 0
+    out = capsys.readouterr().out
+    assert "\nbacked 0, gap 0, unchecked 2\n" in out
+    assert headings(out)[1:] == ["## w1, w1b: UNCHECKED", "## w2: UNCHECKED"]

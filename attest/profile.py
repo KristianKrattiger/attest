@@ -34,13 +34,22 @@ def _profile_mapping(path: Path) -> dict:
 
 
 def _check_names(file: str, control: object, scopes: object) -> None:
-    """One control's name, scopes and rule names must each hold a letter or digit, with at least one scope."""
-    if not has_letter_or_digit(control):
-        raise AttestError(f"{file}: control name {control!r} must be a non-empty string")
+    """One control's name, scopes and rule names must each be a string holding a letter or digit, with a scope."""
+    if (problem := _name_problem(control)) is not None:
+        raise AttestError(f"{file}: control name {control!r} {problem}")
     if not isinstance(scopes, dict) or not scopes:
         raise AttestError(f"{file}: control {control!r} has no scopes")
     for scope, rule in scopes.items():
-        if not has_letter_or_digit(scope):
-            raise AttestError(f"{file}: {control}.{scope!r} scope name must be a non-empty string")
-        if not has_letter_or_digit(rule):
-            raise AttestError(f"{file}: {control}.{scope} rule name must be a non-empty string")
+        if (problem := _name_problem(scope)) is not None:
+            raise AttestError(f"{file}: {control}.{scope!r} scope name {problem}")
+        if (problem := _name_problem(rule)) is not None:
+            raise AttestError(f"{file}: {control}.{scope} rule name {problem}")
+
+
+def _name_problem(name: object) -> Optional[str]:
+    """Which rule a name breaks, or None: it must be a string, and the string must hold a letter or digit."""
+    if not isinstance(name, str):
+        return "must be a string"
+    if not has_letter_or_digit(name):
+        return "must contain a letter or digit"
+    return None

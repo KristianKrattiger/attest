@@ -24,7 +24,7 @@ from attest.evidence import Evidence
 from attest.model import Verdict
 from attest.readers.defender_machines import Machine
 from attest.readers.intune_devices import IntuneDevice
-from attest.rules.common import unchecked
+from attest.rules.common import never, unchecked
 
 STALE_AFTER = timedelta(days=7)
 
@@ -166,3 +166,6 @@ def edr_all_endpoints(evidence: Evidence) -> Verdict:
     reason = (f"all {len(intune.items)} devices onboarded to Defender, Active, and seen within {STALE_AFTER.days} days "
               f"of {defender.exported_at.date().isoformat()}" + notes)
     return Verdict("backed", reason, cited=(intune.file, defender.file), population=population)
+
+
+edr_alert_monitoring = never("no export in v1 shows that alerts are monitored")

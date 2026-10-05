@@ -1,4 +1,8 @@
-"""Confirmed tags, each grounded in its document (spec: Pipeline, step 1)."""
+"""Confirmed tags, each grounded in its document (spec: Pipeline, step 1).
+
+A quote must appear exactly once in its document and hold at least three words, so that it names one passage and
+says something; several tags may share one quote, one for each claim the passage makes.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,7 +16,7 @@ ATTEST_DIR = "attest"  # the firm folder's attestation documents (spec: Firm fol
 
 
 def load_tags(firm: Path, profile: Profile) -> list[Tag]:
-    """Every tag in firm/tags.yaml, refusing one whose quote is not an exact substring of its document."""
+    """Every tag in firm/tags.yaml, refusing one whose quote is under three words or not once in its document."""
     firm = Path(firm)
     documents: dict[str, str] = {}
     seen: set[str] = set()
@@ -22,11 +26,17 @@ def load_tags(firm: Path, profile: Profile) -> list[Tag]:
         if tag.id in seen:
             raise AttestError(f"tags.yaml: tag id {tag.id!r} appears twice")
         seen.add(tag.id)
+        if _words(tag.quote) < 3:
+            raise AttestError(f"tags.yaml: tag {tag.id!r}: quote must contain at least three words")
         _check_in_profile(tag, profile)
         if tag.doc not in documents:
             documents[tag.doc] = _document_text(firm, tag)
-        if tag.quote not in documents[tag.doc]:
+        found = _occurrences(documents[tag.doc], tag.quote)
+        if found == 0:
             raise AttestError(f"tags.yaml: tag {tag.id!r}: quote is not an exact substring of {tag.doc}")
+        if found > 1:
+            raise AttestError(
+                f"tags.yaml: tag {tag.id!r}: quote appears {found} times in {tag.doc}; quote enough to be unique")
         tags.append(tag)
     return tags
 
@@ -61,12 +71,28 @@ def _checked_tag(entry: object, i: int) -> Tag:
             raise AttestError(f"tags.yaml: tag {i} has unknown key {key!r}")
     for field in FIELDS:
         value = entry[field]
+        if not isinstance(value, str):
+            raise AttestError(f"tags.yaml: tag {i} field {field!r} must be a string, got {value!r}")
         if not has_letter_or_digit(value):
-            raise AttestError(f"tags.yaml: tag {i} field {field!r} must be a non-empty string")
+            raise AttestError(f"tags.yaml: tag {i} field {field!r} must contain a letter or digit")
         if field != "quote" and has_invisible_edge(value):
             raise AttestError(
                 f"tags.yaml: tag {i} field {field!r} has leading or trailing whitespace or invisible characters")
     return Tag(*(entry[field] for field in FIELDS))
+
+
+def _words(quote: str) -> int:
+    """The quote's words: whitespace-separated tokens that hold a letter or digit."""
+    return sum(1 for token in quote.split() if has_letter_or_digit(token))
+
+
+def _occurrences(text: str, quote: str) -> int:
+    """How many times quote occurs in text, overlapping occurrences included."""
+    count, at = 0, text.find(quote)
+    while at != -1:
+        count += 1
+        at = text.find(quote, at + 1)
+    return count
 
 
 def _check_in_profile(tag: Tag, profile: Profile) -> None:

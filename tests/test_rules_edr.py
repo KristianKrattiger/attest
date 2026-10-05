@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 
 from attest.rules import edr
-from attest.rules.edr import edr_all_endpoints
+from attest.rules.edr import edr_alert_monitoring, edr_all_endpoints
 from builders import NOW, device, evidence, machine
 
 
@@ -222,3 +222,8 @@ def test_onboarding_and_health_are_compared_without_regard_to_case():
     v = edr_all_endpoints(fleet(defender_machines=[
         machine(i, onboarding="ONBOARDED", health="active") for i in range(1, 4)]))
     assert v.status == "backed"
+
+
+def test_alert_monitoring_is_always_unchecked():
+    v = edr_alert_monitoring(fleet())
+    assert (v.status, v.reason) == ("unchecked", "no export in v1 shows that alerts are monitored")

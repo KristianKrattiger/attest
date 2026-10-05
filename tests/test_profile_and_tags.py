@@ -24,9 +24,10 @@ def test_the_shipped_profile_has_the_three_controls_and_their_scopes():
     assert load_profile() == {
         "mfa": {"all_users": "mfa_all_users", "email": "mfa_email",
                 "admins": "mfa_admins", "remote_access": "mfa_remote_access"},
-        "edr": {"all_endpoints": "edr_all_endpoints"},
-        "backup": {"m365_mailboxes": "backup_m365_mailboxes", "servers": "backup_servers",
-                   "offline_copy": "backup_offline_copy", "restore_tested": "backup_restore_tested"},
+        "edr": {"all_endpoints": "edr_all_endpoints", "alert_monitoring": "edr_alert_monitoring"},
+        "backup": {"m365_mailboxes": "backup_m365_mailboxes", "m365_files": "backup_m365_files",
+                   "servers": "backup_servers", "offline_copy": "backup_offline_copy",
+                   "restore_tested": "backup_restore_tested"},
     }
 
 
@@ -131,11 +132,19 @@ def test_a_tag_that_is_not_a_mapping_stops_the_run(tmp_path, entry):
 
 
 @pytest.mark.parametrize("field, value", [
-    ("quote", "null"), ("quote", '""'), ("quote", "[All staff use MFA.]"), ("quote", "true"),
-    ("id", "4.1"), ("id", "41"), ("id", "2026-02-01"), ("id", '""'), ("id", "null"),
-    ("doc", "null"), ("doc", '""'), ("doc", "{a: b}"),
-    ("control", "null"), ("control", "false"), ("control", '""'),
-    ("scope", "null"), ("scope", "3"), ("scope", '""'),
+    ("quote", "null"), ("quote", "[All staff use MFA.]"), ("quote", "true"),
+    ("id", "4.1"), ("id", "41"), ("id", "2026-02-01"), ("id", "null"),
+    ("doc", "null"), ("doc", "{a: b}"),
+    ("control", "null"), ("control", "false"),
+    ("scope", "null"), ("scope", "3"),
+])
+def test_a_tag_field_that_is_not_a_string_stops_the_run(tmp_path, field, value):
+    with pytest.raises(AttestError, match=f"tags.yaml: tag 1 field '{field}' must be a string, got "):
+        load_tags(_firm(tmp_path, _tags(_entry(**{field: value}))), PROFILE)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("quote", '""'), ("id", '""'), ("doc", '""'), ("control", '""'), ("scope", '""'),
     # blank is not grounding: a space is a substring of nearly every document
     ("quote", '" "'), ("quote", '"\\t"'), ("quote", '" \\t\\n "'), ("id", '" "'), ("doc", '" "'),
     ("control", '" "'), ("scope", '"\\t"'),
@@ -151,21 +160,24 @@ def test_a_tag_that_is_not_a_mapping_stops_the_run(tmp_path, entry):
     ("quote", '"\\u115f"'), ("quote", '"\\u1160"'), ("quote", '"\\uffa0"'), ("quote", '" \\u3164\\u3164 "'),
     ("id", '"\\uffa0"'), ("doc", '"\\u115f"'), ("control", '"\\u1160"'),
 ])
-def test_a_tag_field_that_is_not_a_non_empty_string_stops_the_run(tmp_path, field, value):
-    with pytest.raises(AttestError, match=f"tags.yaml: tag 1 field '{field}' must be a non-empty string"):
+def test_a_tag_field_without_a_letter_or_digit_stops_the_run(tmp_path, field, value):
+    with pytest.raises(AttestError, match=f"tags.yaml: tag 1 field '{field}' must contain a letter or digit"):
         load_tags(_firm(tmp_path, _tags(_entry(**{field: value}))), PROFILE)
 
 
 def test_a_quote_with_punctuation_around_letters_and_digits_still_loads(tmp_path):
-    firm = _firm(tmp_path, _tags(_entry(quote='"MFA: yes."'), _entry(id="w2", quote='"2FA (4.1)"')))
+    firm = _firm(tmp_path, _tags(_entry(quote='"MFA: yes. Always."'), _entry(id="w2", quote='"See 2FA (4.1)"')))
     (firm / "attest" / "wisp.txt").write_text("Policy. MFA: yes. Always.\nSee 2FA (4.1) for detail.\n", encoding="utf-8")
-    assert [t.quote for t in load_tags(firm, PROFILE)] == ["MFA: yes.", "2FA (4.1)"]
+    assert [t.quote for t in load_tags(firm, PROFILE)] == ["MFA: yes. Always.", "See 2FA (4.1)"]
 
 
 def test_a_quote_in_another_script_still_loads(tmp_path):
-    firm = _firm(tmp_path, _tags(_entry(quote='"\\u591a\\u8981\\u7d20\\u8a8d\\u8a3c"')))  # CJK letters (category Lo)
-    (firm / "attest" / "wisp.txt").write_text("\u591a\u8981\u7d20\u8a8d\u8a3c\u3092\u4f7f\u3046\n", encoding="utf-8")
-    assert [t.quote for t in load_tags(firm, PROFILE)] == ["\u591a\u8981\u7d20\u8a8d\u8a3c"]
+    # Hebrew letters (category Lo), three words: "all the employees use"
+    firm = _firm(tmp_path, _tags(_entry(quote='"\\u05db\\u05dc \\u05d4\\u05e2\\u05d5\\u05d1\\u05d3\\u05d9\\u05dd '
+                                              '\\u05de\\u05e9\\u05ea\\u05de\\u05e9\\u05d9\\u05dd"')))
+    words = "\u05db\u05dc \u05d4\u05e2\u05d5\u05d1\u05d3\u05d9\u05dd \u05de\u05e9\u05ea\u05de\u05e9\u05d9\u05dd"
+    (firm / "attest" / "wisp.txt").write_text(words + " \u05d1-MFA.\n", encoding="utf-8")
+    assert [t.quote for t in load_tags(firm, PROFILE)] == [words]
 
 
 @pytest.mark.parametrize("field, value", [
@@ -183,8 +195,9 @@ def test_an_id_doc_control_or_scope_with_edge_whitespace_or_invisibles_stops_the
 
 
 def test_a_quote_with_spaces_at_its_edges_is_stored_as_written(tmp_path):
-    firm = _firm(tmp_path, _tags(_entry(quote='" staff use "')))
-    assert load_tags(firm, PROFILE)[0].quote == " staff use "
+    firm = _firm(tmp_path, _tags(_entry(quote='" staff use MFA on "')))
+    (firm / "attest" / "wisp.txt").write_text("All staff use MFA on every account.\n", encoding="utf-8")
+    assert load_tags(firm, PROFILE)[0].quote == " staff use MFA on "
 
 
 def test_a_quote_whose_edge_spaces_are_not_in_the_document_is_refused(tmp_path):
@@ -319,36 +332,38 @@ def test_a_missing_profile_stops_the_run(tmp_path):
 
 
 @pytest.mark.parametrize("text, message", [
-    ("3:\n  all_users: mfa_all_users\n", "controls.yaml: control name 3 must be a non-empty string"),
-    ("~:\n  all_users: mfa_all_users\n", "controls.yaml: control name None must be a non-empty string"),
-    ('"":\n  all_users: mfa_all_users\n', "controls.yaml: control name '' must be a non-empty string"),
-    ("mfa:\n  3: mfa_all_users\n", "controls.yaml: mfa.3 scope name must be a non-empty string"),
-    ("mfa:\n  ~: mfa_all_users\n", "controls.yaml: mfa.None scope name must be a non-empty string"),
-    ('mfa:\n  "": mfa_all_users\n', "controls.yaml: mfa.'' scope name must be a non-empty string"),
-    ("mfa:\n  email:\n", "controls.yaml: mfa.email rule name must be a non-empty string"),
-    ("mfa:\n  email: 5\n", "controls.yaml: mfa.email rule name must be a non-empty string"),
-    ('mfa:\n  email: ""\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
-    ("mfa:\n  email: [mfa_email]\n", "controls.yaml: mfa.email rule name must be a non-empty string"),
+    ("3:\n  all_users: mfa_all_users\n", "controls.yaml: control name 3 must be a string"),
+    ("~:\n  all_users: mfa_all_users\n", "controls.yaml: control name None must be a string"),
+    ('"":\n  all_users: mfa_all_users\n', "controls.yaml: control name '' must contain a letter or digit"),
+    ("mfa:\n  3: mfa_all_users\n", "controls.yaml: mfa.3 scope name must be a string"),
+    ("mfa:\n  ~: mfa_all_users\n", "controls.yaml: mfa.None scope name must be a string"),
+    ('mfa:\n  "": mfa_all_users\n', "controls.yaml: mfa.'' scope name must contain a letter or digit"),
+    ("mfa:\n  email:\n", "controls.yaml: mfa.email rule name must be a string"),
+    ("mfa:\n  email: 5\n", "controls.yaml: mfa.email rule name must be a string"),
+    ('mfa:\n  email: ""\n', "controls.yaml: mfa.email rule name must contain a letter or digit"),
+    ("mfa:\n  email: [mfa_email]\n", "controls.yaml: mfa.email rule name must be a string"),
     # the same rule as a tag field: some text that is neither whitespace nor an invisible format character
-    ('" ":\n  all_users: mfa_all_users\n', "controls.yaml: control name ' ' must be a non-empty string"),
+    ('" ":\n  all_users: mfa_all_users\n', "controls.yaml: control name ' ' must contain a letter or digit"),
     ('"\\u200b":\n  all_users: mfa_all_users\n',
-     f"controls.yaml: control name {chr(0x200b)!r} must be a non-empty string"),
-    ('mfa:\n  " ": mfa_all_users\n', "controls.yaml: mfa.' ' scope name must be a non-empty string"),
-    ('mfa:\n  "\\t": mfa_all_users\n', f"controls.yaml: mfa.{chr(9)!r} scope name must be a non-empty string"),
-    ('mfa:\n  "\\ufeff": mfa_all_users\n', f"controls.yaml: mfa.{chr(0xfeff)!r} scope name must be a non-empty string"),
-    ('mfa:\n  email: " "\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
-    ('mfa:\n  email: "\\u00ad"\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
+     f"controls.yaml: control name {chr(0x200b)!r} must contain a letter or digit"),
+    ('mfa:\n  " ": mfa_all_users\n', "controls.yaml: mfa.' ' scope name must contain a letter or digit"),
+    ('mfa:\n  "\\t": mfa_all_users\n', f"controls.yaml: mfa.{chr(9)!r} scope name must contain a letter or digit"),
+    ('mfa:\n  "\\ufeff": mfa_all_users\n',
+     f"controls.yaml: mfa.{chr(0xfeff)!r} scope name must contain a letter or digit"),
+    ('mfa:\n  email: " "\n', "controls.yaml: mfa.email rule name must contain a letter or digit"),
+    ('mfa:\n  email: "\\u00ad"\n', "controls.yaml: mfa.email rule name must contain a letter or digit"),
     # and it needs a letter or digit: punctuation and the other invisibles are not names either
-    ('".":\n  all_users: mfa_all_users\n', "controls.yaml: control name '.' must be a non-empty string"),
+    ('".":\n  all_users: mfa_all_users\n', "controls.yaml: control name '.' must contain a letter or digit"),
     ('"\\u3164":\n  all_users: mfa_all_users\n',
-     f"controls.yaml: control name {chr(0x3164)!r} must be a non-empty string"),
-    ('mfa:\n  "-": mfa_all_users\n', "controls.yaml: mfa.'-' scope name must be a non-empty string"),
-    ('mfa:\n  "\\u2800": mfa_all_users\n', f"controls.yaml: mfa.{chr(0x2800)!r} scope name must be a non-empty string"),
-    ('mfa:\n  email: "_"\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
-    ('mfa:\n  email: "\\u3164"\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
-    ('mfa:\n  email: "\\uffa0"\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
+     f"controls.yaml: control name {chr(0x3164)!r} must contain a letter or digit"),
+    ('mfa:\n  "-": mfa_all_users\n', "controls.yaml: mfa.'-' scope name must contain a letter or digit"),
+    ('mfa:\n  "\\u2800": mfa_all_users\n',
+     f"controls.yaml: mfa.{chr(0x2800)!r} scope name must contain a letter or digit"),
+    ('mfa:\n  email: "_"\n', "controls.yaml: mfa.email rule name must contain a letter or digit"),
+    ('mfa:\n  email: "\\u3164"\n', "controls.yaml: mfa.email rule name must contain a letter or digit"),
+    ('mfa:\n  email: "\\uffa0"\n', "controls.yaml: mfa.email rule name must contain a letter or digit"),
     ('mfa:\n  "\\u115f\\u1160": mfa_all_users\n',
-     f"controls.yaml: mfa.{chr(0x115f) + chr(0x1160)!r} scope name must be a non-empty string"),
+     f"controls.yaml: mfa.{chr(0x115f) + chr(0x1160)!r} scope name must contain a letter or digit"),
 ])
 @pytest.mark.parametrize("rules", [None, {"mfa_all_users", "mfa_email"}])
 def test_a_profile_name_that_is_not_a_non_empty_string_stops_the_run(tmp_path, text, message, rules):
@@ -463,3 +478,50 @@ def test_a_profile_nested_too_deeply_stops_the_run(tmp_path):
     path.write_text("mfa: " + "[" * 1000 + "\n", encoding="utf-8")
     with pytest.raises(AttestError, match="controls.yaml: nested too deeply"):
         load_profile(path)
+
+
+# Several tags may share one quote: each claim in it gets its own tag (decision 1, 2026-10-05).
+
+def test_several_tags_may_share_one_quote(tmp_path):
+    second = _entry(id="w2", control="edr", scope="all_endpoints")
+    tags = load_tags(_firm(tmp_path, _tags(_entry(), second)), PROFILE)
+    assert [(t.id, t.doc, t.quote) for t in tags] == [("w1", "attest/wisp.txt", "All staff use MFA."),
+                                                     ("w2", "attest/wisp.txt", "All staff use MFA.")]
+
+
+# A quote must appear exactly once in its document and hold at least three words (decision 2, 2026-10-05).
+
+def test_a_quote_that_appears_twice_in_its_document_is_refused(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry()))
+    (firm / "attest" / "wisp.txt").write_text("All staff use MFA.\nAs section 2 says, All staff use MFA.\n",
+                                              encoding="utf-8")
+    message = "tags.yaml: tag 'w1': quote appears 2 times in attest/wisp.txt; quote enough to be unique"
+    with pytest.raises(AttestError, match=re.escape(message)):
+        load_tags(firm, PROFILE)
+
+
+def test_overlapping_occurrences_of_a_quote_are_counted(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(quote='"MFA on MFA on"')))
+    (firm / "attest" / "wisp.txt").write_text("We use MFA on MFA on MFA on everything.\n", encoding="utf-8")
+    with pytest.raises(AttestError, match="quote appears 2 times in attest/wisp.txt"):
+        load_tags(firm, PROFILE)
+
+
+def test_occurrences_are_counted_in_the_newline_normalised_text(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(quote='"use MFA.\\nEvery laptop"')))
+    (firm / "attest" / "wisp.txt").write_bytes((WISP + WISP).replace("\n", "\r\n").encode("utf-8"))
+    with pytest.raises(AttestError, match="quote appears 2 times in attest/wisp.txt"):
+        load_tags(firm, PROFILE)
+
+
+@pytest.mark.parametrize("quote", ['"a"', '"MFA: yes."', '"use MFA."', '"MFA - yes ."', '"All  staff"'])
+def test_a_quote_of_fewer_than_three_words_is_refused(tmp_path, quote):
+    firm = _firm(tmp_path, _tags(_entry(quote=quote)))
+    (firm / "attest" / "wisp.txt").write_text("a\nMFA: yes.\nuse MFA.\nMFA - yes .\nAll  staff\n", encoding="utf-8")
+    with pytest.raises(AttestError, match=re.escape("tags.yaml: tag 'w1': quote must contain at least three words")):
+        load_tags(firm, PROFILE)
+
+
+def test_a_unique_quote_of_three_words_loads(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(quote='"staff use MFA."')))
+    assert [t.quote for t in load_tags(firm, PROFILE)] == ["staff use MFA."]

@@ -11,5 +11,7 @@ verdicts:
   wisp-mfa-admins: {status: backed}
   wisp-vpn: {status: unchecked}
   wisp-edr: {status: gap, entities: [HP-LT-12]}
+  wisp-edr-alerts: {status: unchecked}
   wisp-backup: {status: gap, entities: [carmen.diaz@harborpine.example]}
+  wisp-backup-files: {status: unchecked}
   wisp-immutable: {status: unchecked}

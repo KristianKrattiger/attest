@@ -5,7 +5,8 @@ import pytest
 
 from attest.readers.veeam_users import VeeamUser
 from attest.rules import backup
-from attest.rules.backup import backup_m365_mailboxes, backup_offline_copy, backup_restore_tested, backup_servers
+from attest.rules.backup import (
+    backup_m365_files, backup_m365_mailboxes, backup_offline_copy, backup_restore_tested, backup_servers)
 from builders import NOW, evidence, mailbox, upn, user
 
 TEAM = ["ann", "bob", "cy"]
@@ -129,3 +130,8 @@ def test_missing_evidence_is_unchecked(overrides, why):
 def test_scopes_no_v1_export_speaks_to_are_always_unchecked(rule, why):
     v = rule(office())
     assert (v.status, why in v.reason) == ("unchecked", True)
+
+
+def test_onedrive_and_sharepoint_backups_are_always_unchecked():
+    v = backup_m365_files(office())
+    assert (v.status, v.reason) == ("unchecked", "no export in v1 shows OneDrive or SharePoint backups")

@@ -7,8 +7,10 @@ mfa:
   remote_access: mfa_remote_access
 edr:
   all_endpoints: edr_all_endpoints
+  alert_monitoring: edr_alert_monitoring
 backup:
   m365_mailboxes: backup_m365_mailboxes
+  m365_files: backup_m365_files
   servers: backup_servers
   offline_copy: backup_offline_copy
   restore_tested: backup_restore_tested
