@@ -6,6 +6,7 @@ from collections import Counter
 
 from attest.model import Tag, Verdict
 
+TITLE = "# Attestation check:"  # how every report this tool writes begins
 _ONE_LINE = str.maketrans("\r\n", "  ")
 
 
@@ -29,7 +30,7 @@ def _require_statable(verdict: Verdict) -> None:
 
 def render(firm_name: str, results: list[tuple[Tag, Verdict]]) -> str:
     counts = Counter(v.status for _, v in results)
-    lines = [f"# Attestation check: {one_line(firm_name)}", "",
+    lines = [f"{TITLE} {one_line(firm_name)}", "",
              f"backed {counts['backed']}, gap {counts['gap']}, unchecked {counts['unchecked']}", ""]
     for tag, verdict in results:
         _require_statable(verdict)

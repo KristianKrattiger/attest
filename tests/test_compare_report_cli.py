@@ -150,23 +150,29 @@ def test_a_report_that_cannot_be_written_is_an_error_not_a_traceback(firm, capsy
     assert sorted(p.name for p in firm.iterdir()) == ["attest", "exports", "report.md", "tags.yaml"]
 
 
-def test_a_stub_that_cannot_be_written_reports_both_errors(firm, capsys):
+def disk_full(src, dst):
+    raise OSError("disk full")
+
+
+def boom(path):
+    raise RuntimeError("boom")
+
+
+def test_a_stub_that_cannot_be_written_reports_both_errors(firm, monkeypatch, capsys):
+    assert main(["check", str(firm)]) == 0
+    monkeypatch.setattr(os, "replace", disk_full)
     (firm / "tags.yaml").write_text(BAD_TAGS, encoding="utf-8")
-    (firm / "report.md").mkdir()
+    capsys.readouterr()
     assert main(["check", str(firm)]) == 2
     err = capsys.readouterr().err
     assert "attest: tags.yaml: tag 'w1': quote is not an exact substring" in err
-    assert "attest: cannot write report.md: " in err
+    assert "attest: cannot write report.md: disk full" in err
 
 
 def test_a_write_that_fails_part_way_keeps_the_earlier_report_whole(firm, monkeypatch, capsys):
     assert main(["check", str(firm)]) == 0
     before = (firm / "report.md").read_bytes()
     capsys.readouterr()
-
-    def disk_full(src, dst):
-        raise OSError("disk full")
-
     monkeypatch.setattr(os, "replace", disk_full)
     (firm / "tags.yaml").write_text(TAGS.split("  - {id: w2")[0], encoding="utf-8")  # one tag fewer: a new report
     assert main(["check", str(firm)]) == 2
@@ -269,10 +275,6 @@ def test_check_dot_names_the_folder_it_is_run_in(firm, monkeypatch, capsys):
 def test_an_unexpected_error_replaces_an_earlier_report_and_is_re_raised(firm, monkeypatch, capsys):
     assert main(["check", str(firm)]) == 0
     assert "## w1: BACKED" in (firm / "report.md").read_text(encoding="utf-8")
-
-    def boom(path):
-        raise RuntimeError("boom")
-
     monkeypatch.setattr(cli, "check", boom)
     with pytest.raises(RuntimeError, match="boom"):
         main(["check", str(firm)])
@@ -294,22 +296,78 @@ def test_a_verdict_render_refuses_leaves_a_stub_not_an_earlier_report(firm, monk
 
 
 def test_an_unexpected_error_stays_the_error_when_the_stub_cannot_be_written(firm, monkeypatch, capsys):
-    (firm / "report.md").mkdir()
-
-    def boom(path):
-        raise RuntimeError("boom")
-
+    assert main(["check", str(firm)]) == 0
+    monkeypatch.setattr(os, "replace", disk_full)
     monkeypatch.setattr(cli, "check", boom)
+    capsys.readouterr()
     with pytest.raises(RuntimeError, match="boom"):
         main(["check", str(firm)])
-    assert "attest: cannot write report.md: " in capsys.readouterr().err
+    assert "attest: cannot write report.md: disk full" in capsys.readouterr().err
 
 
 def test_an_unexpected_error_with_no_firm_folder_writes_nothing(tmp_path, monkeypatch):
-    def boom(path):
-        raise RuntimeError("boom")
-
     monkeypatch.setattr(cli, "check", boom)
     with pytest.raises(RuntimeError, match="boom"):
         main(["check", str(tmp_path / "nope")])
     assert not (tmp_path / "nope").exists()
+
+
+UNRELATED = "my unrelated report\n"
+
+
+def test_a_failed_run_in_a_folder_that_is_not_a_firm_leaves_an_unrelated_report_alone(tmp_path, capsys):
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / "report.md").write_text(UNRELATED, encoding="utf-8")
+    assert main(["check", str(folder)]) == 2
+    assert "attest: " in capsys.readouterr().err
+    assert (folder / "report.md").read_text(encoding="utf-8") == UNRELATED
+    assert sorted(p.name for p in folder.iterdir()) == ["report.md"]
+
+
+def test_a_failed_run_in_a_firm_leaves_an_unrelated_report_alone(firm):
+    (firm / "tags.yaml").write_text(BAD_TAGS, encoding="utf-8")
+    (firm / "report.md").write_text(UNRELATED, encoding="utf-8")
+    assert main(["check", str(firm)]) == 2
+    assert (firm / "report.md").read_text(encoding="utf-8") == UNRELATED
+
+
+def test_an_unexpected_error_leaves_an_unrelated_report_alone(firm, monkeypatch):
+    (firm / "report.md").write_text(UNRELATED, encoding="utf-8")
+    monkeypatch.setattr(cli, "check", boom)
+    with pytest.raises(RuntimeError, match="boom"):
+        main(["check", str(firm)])
+    assert (firm / "report.md").read_text(encoding="utf-8") == UNRELATED
+
+
+@pytest.mark.parametrize("content", [b"\xff\xfe\x00binary", b"", b"  # Attestation check: not at the start\n"])
+def test_a_report_that_is_not_the_tools_own_is_left_alone_however_odd(firm, content):
+    (firm / "tags.yaml").write_text(BAD_TAGS, encoding="utf-8")
+    (firm / "report.md").write_bytes(content)
+    assert main(["check", str(firm)]) == 2
+    assert (firm / "report.md").read_bytes() == content
+
+
+def test_a_report_that_is_a_folder_is_left_alone_on_failure(firm):
+    (firm / "tags.yaml").write_text(BAD_TAGS, encoding="utf-8")
+    (firm / "report.md").mkdir()
+    assert main(["check", str(firm)]) == 2
+    assert (firm / "report.md").is_dir()
+    assert sorted(p.name for p in firm.iterdir()) == ["attest", "exports", "report.md", "tags.yaml"]
+
+
+def test_a_firm_with_no_report_yet_gets_a_stub_on_an_unexpected_error(firm, monkeypatch):
+    monkeypatch.setattr(cli, "check", boom)
+    with pytest.raises(RuntimeError):
+        main(["check", str(firm)])
+    assert (firm / "report.md").read_text(encoding="utf-8") == (
+        "# Attestation check: tiny\n\nCHECK FAILED: internal error: RuntimeError: boom\n")
+
+
+def test_the_tools_own_earlier_report_is_replaced_even_when_tags_yaml_is_gone(firm, capsys):
+    assert main(["check", str(firm)]) == 0
+    (firm / "tags.yaml").unlink()
+    capsys.readouterr()
+    assert main(["check", str(firm)]) == 2
+    report = (firm / "report.md").read_text(encoding="utf-8")
+    assert report.startswith("# Attestation check: tiny\n\nCHECK FAILED: ") and "BACKED" not in report
