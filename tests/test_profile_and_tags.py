@@ -142,18 +142,42 @@ def test_a_tag_that_is_not_a_mapping_stops_the_run(tmp_path, entry):
     # invisible format characters (Unicode category Cf) are not text either: BOM, soft hyphen, zero-width space
     ("quote", '"\\ufeff"'), ("quote", '"\\u00ad"'), ("quote", '"\\u200b"'), ("quote", '" \\u200b\\ufeff\\u00ad "'),
     ("id", '"\\u200b"'), ("doc", '"\\ufeff"'), ("control", '"\\u00ad"'), ("scope", '"\\u200b"'),
+    # every field needs a letter or digit: punctuation and the other invisibles (U+2800 braille blank, U+3164 Hangul
+    # filler, variation selector, combining grapheme joiner) are not text either
+    ("quote", '"."'), ("quote", '"-"'), ("quote", '" . - "'), ("quote", '"!!"'), ("quote", '"_"'),
+    ("quote", '"\\u2800"'), ("quote", '"\\u3164"'), ("quote", '"\\ufe0f"'), ("quote", '"\\u034f"'),
+    ("id", '"-"'), ("id", '"\\u2800"'), ("doc", '"."'), ("control", '"_"'), ("scope", '"\\u3164"'),
+    # the Hangul fillers are category Lo (letters) that render as blank, so a plain letter test would let them in
+    ("quote", '"\\u115f"'), ("quote", '"\\u1160"'), ("quote", '"\\uffa0"'), ("quote", '" \\u3164\\u3164 "'),
+    ("id", '"\\uffa0"'), ("doc", '"\\u115f"'), ("control", '"\\u1160"'),
 ])
 def test_a_tag_field_that_is_not_a_non_empty_string_stops_the_run(tmp_path, field, value):
     with pytest.raises(AttestError, match=f"tags.yaml: tag 1 field '{field}' must be a non-empty string"):
         load_tags(_firm(tmp_path, _tags(_entry(**{field: value}))), PROFILE)
 
 
+def test_a_quote_with_punctuation_around_letters_and_digits_still_loads(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(quote='"MFA: yes."'), _entry(id="w2", quote='"2FA (4.1)"')))
+    (firm / "attest" / "wisp.txt").write_text("Policy. MFA: yes. Always.\nSee 2FA (4.1) for detail.\n", encoding="utf-8")
+    assert [t.quote for t in load_tags(firm, PROFILE)] == ["MFA: yes.", "2FA (4.1)"]
+
+
+def test_a_quote_in_another_script_still_loads(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(quote='"\\u591a\\u8981\\u7d20\\u8a8d\\u8a3c"')))  # CJK letters (category Lo)
+    (firm / "attest" / "wisp.txt").write_text("\u591a\u8981\u7d20\u8a8d\u8a3c\u3092\u4f7f\u3046\n", encoding="utf-8")
+    assert [t.quote for t in load_tags(firm, PROFILE)] == ["\u591a\u8981\u7d20\u8a8d\u8a3c"]
+
+
 @pytest.mark.parametrize("field, value", [
     ("id", '" w1"'), ("id", '"w1 "'), ("id", '"w1\\n"'), ("doc", '"attest/wisp.txt "'), ("doc", '"\\tattest/wisp.txt"'),
     ("control", '"mfa "'), ("control", '" mfa"'), ("scope", '" all_users"'), ("scope", '"all_users\\t"'),
+    # an invisible format character (Unicode category Cf) at an edge looks like nothing but makes a different value
+    ("id", '"w1\\u200b"'), ("id", '"\\u200bw1"'), ("id", '"\\ufeffw1"'), ("id", '"w1\\u00ad"'),
+    ("doc", '"attest/wisp.txt\\u200b"'), ("control", '"mfa\\u200b"'), ("scope", '"\\u200ball_users"'),
+    ("id", '"w1\\u3164"'), ("scope", '"\\uffa0all_users"'),  # blank Hangul fillers are invisible edges too
 ])
-def test_an_id_doc_control_or_scope_with_edge_whitespace_stops_the_run(tmp_path, field, value):
-    message = f"tags.yaml: tag 1 field '{field}' has leading or trailing whitespace"
+def test_an_id_doc_control_or_scope_with_edge_whitespace_or_invisibles_stops_the_run(tmp_path, field, value):
+    message = f"tags.yaml: tag 1 field '{field}' has leading or trailing whitespace or invisible characters"
     with pytest.raises(AttestError, match=message):
         load_tags(_firm(tmp_path, _tags(_entry(**{field: value}))), PROFILE)
 
@@ -314,6 +338,17 @@ def test_a_missing_profile_stops_the_run(tmp_path):
     ('mfa:\n  "\\ufeff": mfa_all_users\n', f"controls.yaml: mfa.{chr(0xfeff)!r} scope name must be a non-empty string"),
     ('mfa:\n  email: " "\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
     ('mfa:\n  email: "\\u00ad"\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
+    # and it needs a letter or digit: punctuation and the other invisibles are not names either
+    ('".":\n  all_users: mfa_all_users\n', "controls.yaml: control name '.' must be a non-empty string"),
+    ('"\\u3164":\n  all_users: mfa_all_users\n',
+     f"controls.yaml: control name {chr(0x3164)!r} must be a non-empty string"),
+    ('mfa:\n  "-": mfa_all_users\n', "controls.yaml: mfa.'-' scope name must be a non-empty string"),
+    ('mfa:\n  "\\u2800": mfa_all_users\n', f"controls.yaml: mfa.{chr(0x2800)!r} scope name must be a non-empty string"),
+    ('mfa:\n  email: "_"\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
+    ('mfa:\n  email: "\\u3164"\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
+    ('mfa:\n  email: "\\uffa0"\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
+    ('mfa:\n  "\\u115f\\u1160": mfa_all_users\n',
+     f"controls.yaml: mfa.{chr(0x115f) + chr(0x1160)!r} scope name must be a non-empty string"),
 ])
 @pytest.mark.parametrize("rules", [None, {"mfa_all_users", "mfa_email"}])
 def test_a_profile_name_that_is_not_a_non_empty_string_stops_the_run(tmp_path, text, message, rules):

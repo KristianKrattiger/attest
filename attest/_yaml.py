@@ -16,12 +16,25 @@ from attest.model import AttestError
 _MERGE_TAG = "tag:yaml.org,2002:merge"
 
 
-def has_visible_text(value: object) -> bool:
-    """A string with at least one character that is neither whitespace nor an invisible format character.
+# The Hangul fillers are classed as letters (category Lo) yet render as blank, so a plain "is a letter" test
+# would accept them; every other invisible character is whitespace or in a category other than L and N.
+_BLANK_LETTERS = frozenset("ᅟᅠㅤﾠ")
 
-    Whitespace and Unicode category Cf (byte-order mark, soft hyphen, zero-width space, ...) are substrings of
-    nearly every document, so a value made only of them would "ground" while naming nothing."""
-    return isinstance(value, str) and any(not ch.isspace() and unicodedata.category(ch) != "Cf" for ch in value)
+
+def has_letter_or_digit(value: object) -> bool:
+    """A string with at least one letter or digit (Unicode category L or N, not a blank Hangul filler).
+
+    Whitespace, punctuation and every invisible character (byte-order mark, soft hyphen, zero-width space, variation
+    selectors, braille blank, Hangul filler, ...) occur in nearly every document, so a value made only of them would
+    "ground" while naming nothing."""
+    return isinstance(value, str) and any(
+        unicodedata.category(ch)[0] in "LN" and ch not in _BLANK_LETTERS for ch in value)
+
+
+def has_invisible_edge(value: str) -> bool:
+    """Whether the first or last character is whitespace or invisible (category Cf, or a blank Hangul filler)."""
+    return any(ch.isspace() or unicodedata.category(ch) == "Cf" or ch in _BLANK_LETTERS
+               for ch in value[:1] + value[-1:])
 
 
 class _DuplicateKey(Exception):

@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Optional
 
-from attest._yaml import has_visible_text, read_yaml
+from attest._yaml import has_letter_or_digit, read_yaml
 from attest.model import AttestError
 
 PROFILE_PATH = Path(__file__).resolve().parents[1] / "profile" / "controls.yaml"
@@ -34,13 +34,13 @@ def _profile_mapping(path: Path) -> dict:
 
 
 def _check_names(file: str, control: object, scopes: object) -> None:
-    """One control's name, scopes and rule names must each be visible text, with at least one scope."""
-    if not has_visible_text(control):
+    """One control's name, scopes and rule names must each hold a letter or digit, with at least one scope."""
+    if not has_letter_or_digit(control):
         raise AttestError(f"{file}: control name {control!r} must be a non-empty string")
     if not isinstance(scopes, dict) or not scopes:
         raise AttestError(f"{file}: control {control!r} has no scopes")
     for scope, rule in scopes.items():
-        if not has_visible_text(scope):
+        if not has_letter_or_digit(scope):
             raise AttestError(f"{file}: {control}.{scope!r} scope name must be a non-empty string")
-        if not has_visible_text(rule):
+        if not has_letter_or_digit(rule):
             raise AttestError(f"{file}: {control}.{scope} rule name must be a non-empty string")

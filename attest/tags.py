@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from attest._yaml import has_visible_text, read_yaml
+from attest._yaml import has_invisible_edge, has_letter_or_digit, read_yaml
 from attest.model import AttestError, Tag
 from attest.profile import Profile
 
@@ -47,10 +47,10 @@ def _tag_entries(path: Path) -> list:
 
 
 def _checked_tag(entry: object, i: int) -> Tag:
-    """One entry as a Tag: a mapping of exactly the five fields, each a string with some visible text.
+    """One entry as a Tag: a mapping of exactly the five fields, each a string with a letter or digit in it.
 
-    The quote is stored as written, edge spaces included, because grounding is exact. A value with no visible
-    text is refused (see `has_visible_text`), and so is an id, doc, control or scope with edge whitespace."""
+    The quote is stored as written, edge spaces included, because grounding is exact. An id, doc, control or scope
+    must also not begin or end with whitespace or an invisible character, which would make a lookalike value."""
     if not isinstance(entry, dict):
         raise AttestError(f"tags.yaml: tag {i} must be a mapping")
     for field in FIELDS:
@@ -61,10 +61,11 @@ def _checked_tag(entry: object, i: int) -> Tag:
             raise AttestError(f"tags.yaml: tag {i} has unknown key {key!r}")
     for field in FIELDS:
         value = entry[field]
-        if not has_visible_text(value):
+        if not has_letter_or_digit(value):
             raise AttestError(f"tags.yaml: tag {i} field {field!r} must be a non-empty string")
-        if field != "quote" and value != value.strip():
-            raise AttestError(f"tags.yaml: tag {i} field {field!r} has leading or trailing whitespace")
+        if field != "quote" and has_invisible_edge(value):
+            raise AttestError(
+                f"tags.yaml: tag {i} field {field!r} has leading or trailing whitespace or invisible characters")
     return Tag(*(entry[field] for field in FIELDS))
 
 
