@@ -301,7 +301,9 @@ its planted entities. **Zero false "backed".** Suite: 574 passed, 2 skipped
 
 - Backed: both admin-MFA attestations (4.3 and the WISP line). The owner's
   exclusion from the all-users policy does not touch them because she holds
-  no admin role and the admin policy covers both role holders.
+  no admin role. Both role holders are enforced by both policies, the
+  all-users policy and the admin policy, as the report says ("enforced by
+  'Require MFA for all users', 'Require MFA for administrators'").
 - Gap: email and all-staff MFA (owner excluded, new hire unregistered); EDR
   (the new hire's laptop is missing from Defender; the reason also records
   that 10 devices matched Defender by Entra device ID and 1 by device name,
