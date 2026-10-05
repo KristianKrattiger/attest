@@ -88,6 +88,9 @@ same stub and shows its traceback.
   a policy covers.
 - Unlicensed or service accounts are permanent backup gaps: every enabled
   member account counts, mailbox or not, and the reviewer annotates them.
+- The three-word rule cannot be met inside text written without spaces
+  between words (Chinese, Japanese): such a quote has to span spaces, or the
+  passage cannot be tagged.
 - The two symlink tests skip on a machine without symlink privilege (as on
   the development machine); run the suite once on a machine that has it.
 - The Veeam field names (`Email`, `IsMailboxBackedUp`, `MailboxBackedUpTime`)
