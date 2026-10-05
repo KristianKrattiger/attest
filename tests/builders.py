@@ -54,8 +54,15 @@ def device(n, aad=True, name=None):
                         os="Windows", cite=f"intune.json:{n}")
 
 
-def machine(n, name=None, aad=True, onboarding="Onboarded", health="Active", last_seen=NOW):
-    return Machine(id=f"m{n}", name=name or f"lt-{n:02d}.firm.example", aad_device_id=f"d-{n}" if aad else None,
+_DEFAULT = object()
+
+
+def machine(n, name=None, aad=True, onboarding="Onboarded", health="Active", last_seen=NOW, entra=_DEFAULT):
+    """Defender machine n. Its Entra device ID is d-<n> unless aad=False (not joined) or entra overrides it
+    (entra=None is not joined too), which is how two records get the same Entra device ID."""
+    if entra is _DEFAULT:
+        entra = f"d-{n}" if aad else None
+    return Machine(id=f"m{n}", name=name or f"lt-{n:02d}.firm.example", aad_device_id=entra,
                    onboarding=onboarding, health=health, last_seen=last_seen, cite=f"mde.json:{n}")
 
 

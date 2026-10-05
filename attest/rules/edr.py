@@ -15,7 +15,9 @@ the latest is a gap, because nothing says which record is the device.
 """
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timedelta
+from functools import cache
 from typing import NamedTuple, Optional
 
 from attest.evidence import Evidence
@@ -27,76 +29,85 @@ from attest.rules.common import unchecked
 STALE_AFTER = timedelta(days=7)
 
 
+@cache
 def _short_name(name: str) -> str:
     """Case-folded, with any domain suffix removed: 'HP-LT-01' and 'hp-lt-01.firm.example' agree."""
     return name.strip().lower().split(".")[0]
+
+
+def _can_pair(device: IntuneDevice, machine: Machine) -> bool:
+    """Whether this Defender machine could be this Intune device.
+
+    The same Entra device, or the same short name when at least one of them has
+    no Entra ID. Two different Entra devices never pair, whatever they are
+    called. Matching and the "outside the population" list both ask this, so
+    they cannot disagree about what a machine could be.
+    """
+    if device.aad_device_id and machine.aad_device_id:
+        return device.aad_device_id == machine.aad_device_id
+    return _short_name(device.name) == _short_name(machine.name)
 
 
 class _Match(NamedTuple):
     machine: Optional[Machine]
     key: str  # what the match rests on: "Entra device ID" or "device name"
     failure: str  # why there is no machine, when there is none
-    others: tuple[Machine, ...]  # other records for the same Entra device: older ones, or all when tied
+    tied: tuple[Machine, ...]  # Entra-device records sharing the latest lastSeen, when none can decide
+    older: tuple[Machine, ...]  # Entra-device records a later one outranks
 
 
-def _latest(records: list[Machine]) -> Optional[Machine]:
-    """The record with the latest lastSeen (never seen is the oldest), or None when several tie for it."""
-    if len(records) == 1:
-        return records[0]
+def _newest(records: list[Machine]) -> tuple[list[Machine], list[Machine]]:
+    """Records for one Entra device: those with the latest lastSeen (never seen is the oldest), and the rest."""
     latest = max((m.last_seen for m in records if m.last_seen is not None), default=None)
-    newest = [m for m in records if m.last_seen == latest]
-    return newest[0] if len(newest) == 1 else None
+    return ([m for m in records if m.last_seen == latest],
+            [m for m in records if m.last_seen != latest])
 
 
 def _match_all(devices: tuple[IntuneDevice, ...], machines: tuple[Machine, ...]) -> list[_Match]:
     """One Defender machine for each Intune device, in device order, or the reason there is none.
 
     By Entra device ID first; if Defender has several records for that Entra
-    device, the latest decides. Whatever is left is matched by short name, but
-    only against machines no Intune device holds by Entra ID, never against a
-    machine with a different Entra ID than the device's own (two Entra devices
-    are two devices), and only when the name picks out exactly one such machine
-    and exactly one device wants it. A name that fits two machines, or one
-    machine wanted by two devices, matches none of them: at most one of those
-    devices can be that machine, and nothing says which.
+    device, the latest decides, and a tie for the latest decides nothing.
+    Whatever is left is matched by short name (`_can_pair`), but only against
+    machines no Intune device holds by Entra ID, and only when exactly one such
+    machine fits and exactly one device wants it. A name that fits two
+    machines, or one machine wanted by two devices, matches none of them: at
+    most one of those devices can be that machine, and nothing says which. A
+    machine that cannot pair with a device (a different Entra device) adds no
+    ambiguity to it.
     """
     by_entra_id: dict[str, list[Machine]] = {}
     for m in machines:
         if m.aad_device_id:
             by_entra_id.setdefault(m.aad_device_id, []).append(m)
-    claimed = {d.aad_device_id for d in devices if d.aad_device_id}
-    by_name: dict[str, list[Machine]] = {}
-    for m in machines:
-        if m.aad_device_id not in claimed:
-            by_name.setdefault(_short_name(m.name), []).append(m)
+    held = {d.aad_device_id for d in devices if d.aad_device_id}
+    unclaimed = [m for m in machines if m.aad_device_id not in held]
     picks: list[Optional[Machine]] = []
     for d in devices:
-        candidates = [] if d.aad_device_id in by_entra_id else [
-            m for m in by_name.get(_short_name(d.name), []) if d.aad_device_id is None or m.aad_device_id is None]
-        picks.append(candidates[0] if len(candidates) == 1 else None)
-    wanted = [p.id for p in picks if p is not None]
+        fits = [] if d.aad_device_id in by_entra_id else [m for m in unclaimed if _can_pair(d, m)]
+        picks.append(fits[0] if len(fits) == 1 else None)
+    wanted = Counter(p.id for p in picks if p is not None)
     matches = []
     for d, pick in zip(devices, picks):
         if d.aad_device_id in by_entra_id:
-            records = by_entra_id[d.aad_device_id]
-            decided = _latest(records)
-            others = tuple(m for m in records if m is not decided)
-            matches.append(_Match(decided, "Entra device ID", "" if decided else "ambiguous Defender records", others))
+            newest, older = _newest(by_entra_id[d.aad_device_id])
+            if len(newest) == 1:
+                matches.append(_Match(newest[0], "Entra device ID", "", (), tuple(older)))
+            else:
+                matches.append(_Match(None, "Entra device ID", "ambiguous Defender records",
+                                      tuple(newest), tuple(older)))
         elif pick is None:
-            matches.append(_Match(None, "device name", "not in Defender", ()))
-        elif wanted.count(pick.id) > 1:
-            matches.append(_Match(None, "device name", "ambiguous name match", ()))
+            matches.append(_Match(None, "device name", "not in Defender", (), ()))
+        elif wanted[pick.id] > 1:
+            matches.append(_Match(None, "device name", "ambiguous name match", (), ()))
         else:
-            matches.append(_Match(pick, "device name", "", ()))
+            matches.append(_Match(pick, "device name", "", (), ()))
     return matches
 
 
 def _outside(devices: tuple[IntuneDevice, ...], machines: tuple[Machine, ...]) -> list[Machine]:
-    """Defender machines no Intune device could correspond to: neither their Entra ID nor their short name is any
-    device's. A machine the matching set aside (older, tied, contested, or of a different Entra device) is not here."""
-    entra_ids = {d.aad_device_id for d in devices if d.aad_device_id}
-    names = {_short_name(d.name) for d in devices}
-    return [m for m in machines if m.aad_device_id not in entra_ids and _short_name(m.name) not in names]
+    """Defender machines no Intune device could be: every machine `_can_pair` rules out for all of them."""
+    return [m for m in machines if not any(_can_pair(d, m) for d in devices)]
 
 
 def _problems(machine: Machine, cutoff: datetime) -> list[str]:
@@ -126,13 +137,13 @@ def edr_all_endpoints(evidence: Evidence) -> Verdict:
     failing: list[tuple[IntuneDevice, str]] = []
     cited: list[str] = []
     set_aside: list[str] = []
-    for device, (found, key, failure, others) in zip(intune.items, _match_all(intune.items, defender.items)):
-        if others:
-            kind = "older" if found else "tied"
-            set_aside.append(f"{kind} Defender records for {device.name}: " + ", ".join(m.name for m in others))
+    for device, (found, key, failure, tied, older) in zip(intune.items, _match_all(intune.items, defender.items)):
+        for kind, records in (("tied", tied), ("older", older)):
+            if records:
+                set_aside.append(f"{kind} Defender records for {device.name}: " + ", ".join(m.name for m in records))
         if found is None:
             failing.append((device, failure))
-            cited += [device.cite, *(m.cite for m in others)]
+            cited += [device.cite, *(m.cite for m in tied)]
             continue
         keys[key] += 1
         problems = _problems(found, cutoff)

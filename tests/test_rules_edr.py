@@ -1,4 +1,3 @@
-from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -13,11 +12,6 @@ def fleet(n=3, **overrides):
                    defender_machines=[machine(i) for i in range(1, n + 1)])
     exports.update(overrides)
     return evidence(**{k: v for k, v in exports.items() if v is not None})
-
-
-def sibling(n, **overrides):
-    """Another Defender record for device 1: a different machine ID and name, the same Entra device ID."""
-    return replace(machine(n, **overrides), aad_device_id="d-1")
 
 
 def test_backed_when_every_intune_device_is_onboarded_active_and_recent():
@@ -111,7 +105,7 @@ OLD = "lt-01-old.firm.example"
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_the_latest_defender_record_for_an_entra_device_decides_when_it_is_inactive(reverse):
-    records = [machine(1, health="Inactive"), sibling(2, name=OLD, last_seen=NOW - timedelta(days=2))]
+    records = [machine(1, health="Inactive"), machine(2, entra="d-1", name=OLD, last_seen=NOW - timedelta(days=2))]
     v = edr_all_endpoints(fleet(n=1, defender_machines=records[::-1] if reverse else records))
     assert (v.status, v.entities) == ("gap", ("LT-01",))
     assert "LT-01: health Inactive" in v.reason
@@ -121,7 +115,7 @@ def test_the_latest_defender_record_for_an_entra_device_decides_when_it_is_inact
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_the_latest_defender_record_for_an_entra_device_decides_when_it_is_healthy(reverse):
-    records = [machine(1), sibling(2, name=OLD, health="Inactive", last_seen=NOW - timedelta(days=30))]
+    records = [machine(1), machine(2, entra="d-1", name=OLD, health="Inactive", last_seen=NOW - timedelta(days=30))]
     v = edr_all_endpoints(fleet(n=1, defender_machines=records[::-1] if reverse else records))
     assert v.status == "backed"
     assert f"older Defender records for LT-01: {OLD}" in v.reason
@@ -130,7 +124,8 @@ def test_the_latest_defender_record_for_an_entra_device_decides_when_it_is_healt
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_a_defender_record_never_seen_is_older_than_any_that_was(reverse):
-    records = [machine(1, last_seen=None), sibling(2, name=OLD, health="Inactive", last_seen=NOW - timedelta(days=1))]
+    records = [machine(1, last_seen=None),
+               machine(2, entra="d-1", name=OLD, health="Inactive", last_seen=NOW - timedelta(days=1))]
     v = edr_all_endpoints(fleet(n=1, defender_machines=records[::-1] if reverse else records))
     assert (v.status, v.entities) == ("gap", ("LT-01",))
     assert "LT-01: health Inactive" in v.reason
@@ -140,7 +135,7 @@ def test_a_defender_record_never_seen_is_older_than_any_that_was(reverse):
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("seen", [NOW, None])
 def test_defender_records_for_an_entra_device_tied_on_last_seen_are_ambiguous(reverse, seen):
-    records = [machine(1, last_seen=seen), sibling(2, name=OLD, health="Inactive", last_seen=seen)]
+    records = [machine(1, last_seen=seen), machine(2, entra="d-1", name=OLD, health="Inactive", last_seen=seen)]
     exported = records[::-1] if reverse else records
     v = edr_all_endpoints(fleet(n=1, defender_machines=exported))
     assert (v.status, v.entities) == ("gap", ("LT-01",))
@@ -151,18 +146,36 @@ def test_defender_records_for_an_entra_device_tied_on_last_seen_are_ambiguous(re
 
 
 def test_a_tie_for_the_latest_last_seen_is_ambiguous_even_with_an_older_record_present():
-    records = [machine(1), sibling(2, name=OLD, health="Inactive"),
-               sibling(3, name="lt-01-older.firm.example", last_seen=NOW - timedelta(days=5))]
+    records = [machine(1), machine(2, entra="d-1", name=OLD, health="Inactive"),
+               machine(3, entra="d-1", name="lt-01-older.firm.example", last_seen=NOW - timedelta(days=5))]
     v = edr_all_endpoints(fleet(n=1, defender_machines=records))
     assert (v.status, v.entities) == ("gap", ("LT-01",))
-    assert "ambiguous Defender records" in v.reason
+    assert v.reason.endswith("LT-01: ambiguous Defender records; "
+                             f"tied Defender records for LT-01: lt-01.firm.example, {OLD}; "
+                             "older Defender records for LT-01: lt-01-older.firm.example")
+    assert v.cited == ("intune.json:1", "mde.json:1", "mde.json:2")
 
 
 def test_a_device_never_pairs_by_name_with_a_machine_of_a_different_entra_device():
     v = edr_all_endpoints(fleet(n=1, defender_machines=[machine(9, name="lt-01.firm.example")]))
     assert (v.status, v.entities) == ("gap", ("LT-01",))
     assert "LT-01: not in Defender" in v.reason
-    assert "outside the population" not in v.reason
+    assert "in Defender but not Intune (outside the population): lt-01.firm.example" in v.reason
+
+
+def test_a_machine_of_a_different_entra_device_with_the_same_name_is_outside_the_population():
+    v = edr_all_endpoints(fleet(n=1, defender_machines=[machine(1), machine(9, name="lt-01.firm.example")]))
+    assert v.status == "backed"
+    assert v.reason.endswith("; matched by Entra device ID 1; "
+                             "in Defender but not Intune (outside the population): lt-01.firm.example")
+
+
+def test_a_machine_of_a_different_entra_device_adds_no_ambiguity_to_a_name_match():
+    v = edr_all_endpoints(fleet(n=1, defender_machines=[
+        machine(9, name="lt-01.firm.example"), machine(8, name="LT-01.other", aad=False)]))
+    assert v.status == "backed"
+    assert "matched by device name 1" in v.reason
+    assert "(outside the population): lt-01.firm.example" in v.reason
 
 
 @pytest.mark.parametrize("intune_has_id, defender_has_id", [(True, False), (False, True)])
@@ -178,3 +191,15 @@ def test_machines_a_device_could_not_choose_between_are_not_called_outside_the_p
         machine(1, aad=False), machine(9, name="LT-01.other.example", aad=False)]))
     assert (v.status, v.entities) == ("gap", ("LT-01",))
     assert "outside the population" not in v.reason
+
+
+def test_an_empty_defender_export_leaves_every_device_a_gap_not_unchecked():
+    v = edr_all_endpoints(fleet(defender_machines=[]))
+    assert (v.status, v.entities) == ("gap", ("LT-01", "LT-02", "LT-03"))
+    assert v.reason.count(": not in Defender") == 3
+
+
+def test_onboarding_and_health_are_compared_without_regard_to_case():
+    v = edr_all_endpoints(fleet(defender_machines=[
+        machine(i, onboarding="ONBOARDED", health="active") for i in range(1, 4)]))
+    assert v.status == "backed"
