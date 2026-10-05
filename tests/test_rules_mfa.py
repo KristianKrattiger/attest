@@ -99,9 +99,10 @@ def test_an_unregistered_account_is_a_cited_gap():
     assert "not registered for MFA: " + upn("bob") in v.reason
 
 
-def test_an_account_missing_from_the_registration_export_is_unregistered():
+def test_an_account_missing_from_the_registration_export_is_unchecked():
     v = mfa_all_users(team(entra_registration=[registration("ann"), registration("bob")]))
-    assert (v.status, v.entities) == ("gap", (upn("cy"),))
+    assert v.status == "unchecked"
+    assert v.reason == "the registration export has no record of: " + upn("cy")
 
 
 def test_guests_and_disabled_accounts_are_not_counted_but_are_listed():
@@ -174,7 +175,7 @@ def test_a_role_policy_does_not_count_for_all_users():
 def test_an_admin_role_held_by_a_group_is_unchecked():
     v = mfa_admins(admins(entra_role_assignments=[role("ann"), role("g-admins", kind="group")]))
     assert v.status == "unchecked"
-    assert "held by group(s) g-admins" in v.reason
+    assert "held by principal(s) g-admins that no export resolves to accounts" in v.reason
 
 
 def test_an_admin_missing_from_the_users_export_is_unchecked():
@@ -229,3 +230,95 @@ def test_an_external_type_exclusion_no_export_identifies_counts_as_excluding_eve
     assert v.status == "gap"
     assert set(v.entities) == {upn(u) for u in TEAM}
     assert f"excludes external user types {', '.join(types)}, which no export identifies" in v.reason
+
+
+@pytest.mark.parametrize("rule", [mfa_all_users, mfa_email])
+def test_an_excluded_role_held_by_a_group_excludes_every_account(rule):
+    v = rule(team(entra_ca_policies=[policy(exclude_roles=(GLOBAL_ADMIN,))],
+                  entra_role_assignments=[role("g-admins", kind="group")]))
+    assert v.status == "gap"
+    assert set(v.entities) == {upn(u) for u in TEAM}
+    assert (f"'All users MFA' excludes role(s) {GLOBAL_ADMIN}, "
+            "held by principals no export resolves to accounts") in v.reason
+
+
+def test_an_admin_role_held_by_a_principal_of_an_unknown_kind_is_unchecked():
+    v = mfa_admins(admins(entra_role_assignments=[role("ann"), role("zed", kind="#microsoft.graph.agentUser")]))
+    assert v.status == "unchecked"
+    assert "held by principal(s) zed that no export resolves to accounts" in v.reason
+
+
+def test_a_role_policy_does_not_cover_an_admin_whose_role_is_scoped_to_an_administrative_unit():
+    v = mfa_admins(admins(
+        entra_role_assignments=[role("ann", role_id=EXCHANGE_ADMIN, scope="/administrativeUnits/au1")],
+        entra_ca_policies=[policy("Exchange admins MFA", include_users=(), include_roles=(EXCHANGE_ADMIN,))],
+    ))
+    assert (v.status, v.entities) == ("gap", (upn("ann"),))
+
+
+def test_an_excluded_role_still_excludes_an_account_that_holds_it_in_an_administrative_unit():
+    v = mfa_admins(admins(
+        entra_role_assignments=[role("ann", role_id=EXCHANGE_ADMIN, scope="/administrativeUnits/au1")],
+        entra_ca_policies=[policy(exclude_roles=(EXCHANGE_ADMIN,))],
+    ))
+    assert (v.status, v.entities) == ("gap", (upn("ann"),))
+
+
+def test_an_admin_holding_a_role_tenant_wide_and_in_an_administrative_unit_is_covered_by_the_role_policy():
+    v = mfa_admins(admins(
+        entra_role_assignments=[role("ann", role_id=EXCHANGE_ADMIN, scope="/administrativeUnits/au1"),
+                                role("ann", role_id=EXCHANGE_ADMIN)],
+        entra_ca_policies=[policy("Exchange admins MFA", include_users=(), include_roles=(EXCHANGE_ADMIN,))],
+    ))
+    assert v.status == "backed"
+
+
+def test_an_empty_registration_export_is_unchecked():
+    v = mfa_all_users(team(entra_registration=[]))
+    assert v.status == "unchecked"
+    assert "the registration export has no record of: " + ", ".join(upn(u) for u in TEAM) in v.reason
+
+
+def test_a_shown_registration_failure_stays_a_gap_and_names_the_account_with_no_record():
+    v = mfa_all_users(team(entra_registration=[registration("ann"), registration("bob", False)]))
+    assert (v.status, v.entities) == ("gap", (upn("bob"),))
+    assert "not registered for MFA: " + upn("bob") in v.reason
+    assert v.reason.endswith("; no registration record for: " + upn("cy"))
+
+
+def test_an_account_with_no_registration_record_does_not_hide_a_coverage_gap():
+    v = mfa_all_users(team(entra_ca_policies=[policy(exclude_users=("bob",))],
+                           entra_registration=[registration("ann"), registration("bob")]))
+    assert (v.status, v.entities) == ("gap", (upn("bob"),))
+    assert v.reason.endswith("; no registration record for: " + upn("cy"))
+
+
+def test_a_report_only_role_policy_is_named_in_the_admins_no_enforcement_gap():
+    v = mfa_admins(admins(entra_ca_policies=[
+        policy("Admins MFA", state="enabledForReportingButNotEnforced", include_users=(),
+               include_roles=(GLOBAL_ADMIN, EXCHANGE_ADMIN)),
+    ]))
+    assert v.status == "gap"
+    assert v.reason.startswith("no enforcement")
+    assert "'Admins MFA' is enabledForReportingButNotEnforced" in v.reason
+
+
+def test_one_unidentified_external_type_among_guest_types_excludes_every_account():
+    v = mfa_all_users(team(entra_ca_policies=[
+        policy(exclude_guest_types=("internalGuest", "b2bCollaborationMember"))]))
+    assert v.status == "gap"
+    assert set(v.entities) == {upn(u) for u in TEAM}
+
+
+def test_guest_type_names_are_compared_without_regard_to_case():
+    v = mfa_all_users(team(entra_ca_policies=[policy(exclude_guest_types=("INTERNALGUEST",))]))
+    assert v.status == "backed"
+
+
+def test_the_admin_population_lists_the_disabled_accounts_and_service_principals_it_left_out():
+    users = [user(u) for u in TEAM] + [user("old", enabled=False)]
+    v = mfa_admins(admins(entra_users=users, entra_role_assignments=[
+        role("ann"), role("old"), role("app-1", kind="servicePrincipal")]))
+    assert v.status == "backed"
+    assert v.population == ("1 enabled accounts holding admin roles, from entra_role_assignments.json; "
+                            f"not counted: disabled {upn('old')}; service principals app-1")

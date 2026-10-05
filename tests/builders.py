@@ -22,27 +22,31 @@ def upn(uid):
 
 
 def user(uid, enabled=True, user_type="Member"):
-    return User(uid, upn(uid), uid.title(), enabled, user_type, f"users.json:{uid}")
+    return User(id=uid, upn=upn(uid), display_name=uid.title(), enabled=enabled, user_type=user_type,
+                cite=f"users.json:{uid}")
 
 
 def registration(uid, registered=True):
-    return Registration(uid, upn(uid), registered, f"registration.json:{uid}")
+    return Registration(user_id=uid, upn=upn(uid), mfa_registered=registered, cite=f"registration.json:{uid}")
 
 
 def policy(name="All users MFA", state="enabled", include_users=("All",), exclude_users=(), exclude_groups=(),
            include_roles=(), exclude_roles=(), include_apps=("All",), narrowing=(), requires_mfa=True,
            exclude_guest_types=()):
-    return CaPolicy(name, name, state, tuple(include_users), tuple(exclude_users), tuple(exclude_groups),
-                    tuple(include_roles), tuple(exclude_roles), tuple(include_apps), tuple(narrowing),
-                    requires_mfa, f"ca.json:{name}", exclude_guest_types=tuple(exclude_guest_types))
+    return CaPolicy(id=name, name=name, state=state, include_users=tuple(include_users),
+                    exclude_users=tuple(exclude_users), exclude_groups=tuple(exclude_groups),
+                    include_roles=tuple(include_roles), exclude_roles=tuple(exclude_roles),
+                    include_apps=tuple(include_apps), narrowing=tuple(narrowing), requires_mfa=requires_mfa,
+                    cite=f"ca.json:{name}", exclude_guest_types=tuple(exclude_guest_types))
 
 
 def defaults(enabled):
     return SecurityDefaults(enabled, "security-defaults.json:1")
 
 
-def role(uid, role_id=GLOBAL_ADMIN, kind="user"):
-    return RoleAssignment(uid, kind, upn(uid) if kind == "user" else uid, role_id, "/", f"roles.json:{uid}")
+def role(uid, role_id=GLOBAL_ADMIN, kind="user", scope="/"):
+    return RoleAssignment(principal_id=uid, principal_kind=kind, principal_name=upn(uid) if kind == "user" else uid,
+                          role_id=role_id, scope=scope, cite=f"roles.json:{uid}")
 
 
 def device(n, aad=True):

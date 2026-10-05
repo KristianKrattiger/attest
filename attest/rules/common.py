@@ -14,6 +14,13 @@ def unchecked(reason: str) -> Verdict:
     return Verdict("unchecked", reason)
 
 
+def not_counted(description: str, left_out: list[str]) -> str:
+    """A population description followed by what it left out, if anything."""
+    if not left_out:
+        return description
+    return description + "; not counted: " + "; ".join(left_out)
+
+
 def member_accounts(users: Export[User]) -> tuple[tuple[User, ...], str]:
     """Enabled accounts that are not guests, and a description naming what was left out.
 
@@ -24,15 +31,12 @@ def member_accounts(users: Export[User]) -> tuple[tuple[User, ...], str]:
     counted = tuple(u for u in users.items if u.enabled and u.user_type.lower() != "guest")
     guests = [u.upn for u in users.items if u.enabled and u.user_type.lower() == "guest"]
     disabled = [u.upn for u in users.items if not u.enabled]
-    description = f"{len(counted)} enabled member accounts from {users.file}"
     left_out = []
     if guests:
         left_out.append("guests " + ", ".join(guests))
     if disabled:
         left_out.append("disabled " + ", ".join(disabled))
-    if left_out:
-        description += "; not counted: " + "; ".join(left_out)
-    return counted, description
+    return counted, not_counted(f"{len(counted)} enabled member accounts from {users.file}", left_out)
 
 
 def never(reason: str) -> Rule:
