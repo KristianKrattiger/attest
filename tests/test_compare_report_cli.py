@@ -264,3 +264,52 @@ def test_check_dot_names_the_folder_it_is_run_in(firm, monkeypatch, capsys):
     (firm / "tags.yaml").write_text(BAD_TAGS, encoding="utf-8")
     assert main(["check", "."]) == 2
     assert (firm / "report.md").read_text(encoding="utf-8").startswith("# Attestation check: tiny\n\nCHECK FAILED")
+
+
+def test_an_unexpected_error_replaces_an_earlier_report_and_is_re_raised(firm, monkeypatch, capsys):
+    assert main(["check", str(firm)]) == 0
+    assert "## w1: BACKED" in (firm / "report.md").read_text(encoding="utf-8")
+
+    def boom(path):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli, "check", boom)
+    with pytest.raises(RuntimeError, match="boom"):
+        main(["check", str(firm)])
+    report = (firm / "report.md").read_bytes()
+    assert report == b"# Attestation check: tiny\n\nCHECK FAILED: internal error: RuntimeError: boom\n"
+    assert b"BACKED" not in report
+    assert sorted(p.name for p in firm.iterdir()) == ["attest", "exports", "report.md", "tags.yaml"]
+
+
+def test_a_verdict_render_refuses_leaves_a_stub_not_an_earlier_report(firm, monkeypatch):
+    assert main(["check", str(firm)]) == 0
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    monkeypatch.setattr(cli, "check", lambda path: [(tag, Verdict("backed", "r"))])
+    with pytest.raises(ValueError, match="population"):
+        main(["check", str(firm)])
+    assert (firm / "report.md").read_text(encoding="utf-8") == (
+        "# Attestation check: tiny\n\nCHECK FAILED: internal error: ValueError: "
+        "cannot report a backed verdict without its population\n")
+
+
+def test_an_unexpected_error_stays_the_error_when_the_stub_cannot_be_written(firm, monkeypatch, capsys):
+    (firm / "report.md").mkdir()
+
+    def boom(path):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli, "check", boom)
+    with pytest.raises(RuntimeError, match="boom"):
+        main(["check", str(firm)])
+    assert "attest: cannot write report.md: " in capsys.readouterr().err
+
+
+def test_an_unexpected_error_with_no_firm_folder_writes_nothing(tmp_path, monkeypatch):
+    def boom(path):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli, "check", boom)
+    with pytest.raises(RuntimeError, match="boom"):
+        main(["check", str(tmp_path / "nope")])
+    assert not (tmp_path / "nope").exists()

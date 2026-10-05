@@ -25,15 +25,23 @@ def main(argv: list[str] | None = None) -> int:
     try:
         text = render(name, check(args.firm))
     except AttestError as e:
-        # A run that could not check must not leave an earlier run's verdicts looking current.
-        if args.firm.is_dir():
-            _write_report(args.firm, f"# Attestation check: {one_line(name)}\n\nCHECK FAILED: {one_line(str(e))}\n")
+        _write_stub(args.firm, name, str(e))
         _emit(f"attest: {e}\n", sys.stderr)
         return 2
+    except Exception as e:  # a bug: still no earlier verdicts left looking current, and the traceback still shows
+        with contextlib.suppress(Exception):  # whatever fails here, the operator needs the original error
+            _write_stub(args.firm, name, f"internal error: {type(e).__name__}: {e}")
+        raise
     if not _write_report(args.firm, text):
         return 2
     _emit(text, sys.stdout)
     return 0
+
+
+def _write_stub(folder: Path, name: str, why: str) -> None:
+    """A run that could not check must not leave an earlier run's verdicts looking current: replace the report."""
+    if folder.is_dir():
+        _write_report(folder, f"# Attestation check: {one_line(name)}\n\nCHECK FAILED: {one_line(why)}\n")
 
 
 def _write_report(folder: Path, text: str) -> bool:
