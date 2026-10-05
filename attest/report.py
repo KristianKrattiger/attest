@@ -16,7 +16,7 @@ from collections.abc import Iterable
 from datetime import timezone
 from typing import TYPE_CHECKING, Optional
 
-from attest.model import Status, Tag, Verdict
+from attest.model import Span, Status, Tag, Verdict
 
 if TYPE_CHECKING:
     from attest.evidence import Evidence
@@ -32,34 +32,38 @@ def one_line(text: str) -> str:
     return text.translate(_ONE_LINE)
 
 
-def _same_passage(a: Tag, b: Tag) -> bool:
-    """Whether two tags touch a common line of one document.
+def _span(tag: Tag) -> Span:
+    """The tag's line range, which grouping needs: a tag without one (built by hand, never grounded) is refused.
 
-    A tag with no span (one built by hand, never grounded) is on the same passage only as an unspanned tag with the
-    same quote.
+    Grouping such tags by their exact quote instead would split a passage tagged by clause (final re-review N1).
     """
-    if a.doc != b.doc:
-        return False
-    if a.span is None or b.span is None:
-        return a.span is None and b.span is None and a.quote == b.quote
-    return a.span.first <= b.span.last and b.span.first <= a.span.last
+    if tag.span is None:
+        raise ValueError(f"cannot report tag {tag.id!r} without its line range (load_tags records it when it "
+                         "grounds the quote)")
+    return tag.span
+
+
+def _same_passage(a: Tag, b: Tag) -> bool:
+    """Whether two tags touch a common line of one document."""
+    return a.doc == b.doc and _span(a).first <= _span(b).last and _span(b).first <= _span(a).last
 
 
 def _passage(tags: list[Tag]) -> str:
-    """The whole lines the tags touch, first to last; the quote itself for tags with no span."""
+    """The whole lines the tags touch, first to last."""
     lines: dict[int, str] = {}
-    for span in (tag.span for tag in tags if tag.span is not None):
+    for span in map(_span, tags):
         lines.update(enumerate(span.lines, start=span.first))
-    if not lines:
-        return tags[0].quote
     return "\n".join(lines[n] for n in range(min(lines), max(lines) + 1))  # spans that meet leave no line out
 
 
 def attestations(results: list[tuple[Tag, Verdict]]) -> list[Attestation]:
     """The results grouped by attestation, in the order each first appears, with their tags in result order.
 
-    Tags whose lines meet are joined transitively: a tag spanning two lines joins the tags on either line.
+    Tags whose lines meet are joined transitively: a tag spanning two lines joins the tags on either line. Every
+    tag must carry its line range.
     """
+    for tag, _ in results:
+        _span(tag)
     group = list(range(len(results)))
 
     def root(i: int) -> int:

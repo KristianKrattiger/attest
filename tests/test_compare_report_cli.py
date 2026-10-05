@@ -10,7 +10,7 @@ import attest.__main__ as cli
 from attest.__main__ import main
 from attest.compare import check, run
 from attest.evidence import Evidence
-from attest.model import Export, Tag, Verdict
+from attest.model import Export, Span, Tag, Verdict
 from attest.profile import load_profile
 from attest.report import attestations, combined_status, render
 from attest.tags import load_tags
@@ -39,6 +39,12 @@ MANIFEST = """exports:
 """
 
 
+def spanned(quote, first=1):
+    """A line range for a hand-built tag: its quote taken as whole lines, starting at line `first`."""
+    lines = tuple(quote.split("\n"))
+    return Span(first, first + len(lines) - 1, lines)
+
+
 def stub(name, stderr):
     """The report a failed run leaves behind: the error stderr showed, without its 'attest: ' prefix."""
     error = stderr.removeprefix("attest: ").removesuffix("\n")
@@ -64,7 +70,7 @@ def test_check_runs_each_tag_through_its_scope_rule(firm):
 
 
 def test_the_report_counts_verdicts_and_shows_each_attestation():
-    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users", spanned("All staff use MFA."))
     gap = Verdict("gap", "not registered for MFA: bob@firm.example", ("bob@firm.example",),
                   ("registration.json:2",), "2 enabled member accounts from users.json")
     text = render("tiny", [(tag, gap)])
@@ -97,7 +103,7 @@ PROBE = "Access control\n## w9: BACKED\n\n- all staff use MFA."
 
 
 def test_a_multi_line_quote_stays_inside_its_blockquote():
-    tag = Tag("w1", "attest/wisp.txt", PROBE, "mfa", "all_users")
+    tag = Tag("w1", "attest/wisp.txt", PROBE, "mfa", "all_users", spanned(PROBE))
     text = render("tiny", [(tag, Verdict("backed", "ok", population="2 accounts"))])
     lines = text.splitlines()
     assert [line for line in lines if line.startswith("##")] == ["## w1: BACKED"]
@@ -107,14 +113,15 @@ def test_a_multi_line_quote_stays_inside_its_blockquote():
 
 
 def test_a_reason_stays_on_one_line():
-    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users", spanned("All staff use MFA."))
     text = render("tiny", [(tag, Verdict("gap", "a\n## x"))])
     assert "- reason: a ## x\n" in text
     assert not any(line.startswith("## x") for line in text.splitlines())
 
 
 def test_every_other_firm_text_stays_on_its_own_line():
-    tag = Tag("w1\n## id", "attest/a\r\n## doc.txt", "All staff use MFA.", "mfa\n## control", "all\r## scope")
+    tag = Tag("w1\n## id", "attest/a\r\n## doc.txt", "All staff use MFA.", "mfa\n## control", "all\r## scope",
+              spanned("All staff use MFA."))
     verdict = Verdict("gap", "r", ("bob\n## entity",), ("ca.json:1\n## cited",), "2 accounts\n## population")
     text = render("tiny\n## name", [(tag, verdict)])
     assert [line for line in text.splitlines() if line.startswith("#")] == [
@@ -249,7 +256,7 @@ def test_the_report_is_written_before_it_is_printed(firm, monkeypatch):
 
 
 def test_a_backed_verdict_shows_its_population():
-    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users", spanned("All staff use MFA."))
     backed = Verdict("backed", "all 2 accounts registered", cited=("registration.json",),
                      population="2 enabled member accounts from users.json")
     text = render("tiny", [(tag, backed)])
@@ -258,7 +265,7 @@ def test_a_backed_verdict_shows_its_population():
 
 
 def test_a_verdict_the_report_cannot_state_is_refused():
-    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users", spanned("All staff use MFA."))
     with pytest.raises(ValueError, match="status"):
         render("tiny", [(tag, Verdict("maybe", "r"))])
     with pytest.raises(ValueError, match="population"):
@@ -388,8 +395,8 @@ GAP = Verdict("gap", "not registered for MFA: bob@firm.example", ("bob@firm.exam
 UNCHECKED = Verdict("unchecked", "no export in this stack shows VPN or firewall MFA")
 
 
-def tag(id_, scope, quote=QUOTE, control="mfa"):
-    return Tag(id_, "attest/wisp.txt", quote, control, scope)
+def tag(id_, scope, quote=QUOTE, control="mfa", line=1):
+    return Tag(id_, "attest/wisp.txt", quote, control, scope, spanned(quote, line))
 
 
 def headings(text):
@@ -429,13 +436,13 @@ def test_an_attestation_is_headed_by_the_worst_verdict_of_its_tags(verdicts, hea
 def test_the_count_line_counts_attestations_not_tags():
     other = "Remote access uses a VPN with MFA."
     results = [(tag("w1", "all_users"), BACKED), (tag("w2", "remote_access"), UNCHECKED),
-               (tag("w3", "all_users", quote=other), BACKED)]
+               (tag("w3", "all_users", quote=other, line=2), BACKED)]
     assert "\nbacked 1, gap 0, unchecked 1\n" in render("tiny", results)
 
 
 def test_attestations_keep_the_order_each_quote_first_appears_in():
     other = "Remote access uses a VPN with MFA."
-    results = [(tag("w1", "all_users"), BACKED), (tag("w2", "remote_access", quote=other), UNCHECKED),
+    results = [(tag("w1", "all_users"), BACKED), (tag("w2", "remote_access", quote=other, line=2), UNCHECKED),
                (tag("w3", "email"), GAP)]
     assert [(quote, [t.id for t, _ in tagged]) for _, quote, tagged in attestations(results)] == [
         (QUOTE, ["w1", "w3"]), (other, ["w2"])]
@@ -486,17 +493,17 @@ def test_run_returns_check_s_results_and_the_evidence_they_rest_on(firm):
 
 
 def test_without_evidence_the_report_has_no_exports_table():
-    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users", spanned("All staff use MFA."))
     assert "Exports" not in render("tiny", [(tag, Verdict("unchecked", "r"))])
 
 
 def test_evidence_with_no_exports_says_so():
-    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users", spanned("All staff use MFA."))
     assert "\nExports: none\n" in render("tiny", [(tag, Verdict("unchecked", "r"))], Evidence())
 
 
 def test_a_file_name_cannot_break_the_exports_table_and_the_time_is_shown_in_utc():
-    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users", spanned("All staff use MFA."))
     users = Export("a|b\n## x.json", datetime(2026, 10, 1, 10, tzinfo=timezone(timedelta(hours=-5))), ())
     text = render("tiny", [(tag, Verdict("unchecked", "r"))], Evidence(entra_users=users))
     assert "\n| `entra_users` | `a\\|b ## x.json` | 2026-10-01T15:00:00+00:00 | 0 |\n" in text
@@ -557,3 +564,13 @@ def test_an_attestation_quotes_the_whole_lines_its_tags_touch_under_their_worst_
             "> Line two says every laptop runs EDR at all times.\n\n- document: `attest/doc.txt`\n") in text
     assert "\nbacked 0, gap 0, unchecked 1\n" in text
     assert "> staff use MFA\n" not in text
+
+
+def test_a_tag_with_no_line_range_is_refused():
+    # Third review M1: grouping by exact quote was the hole line grouping closed (N1), so it has no fallback left.
+    unranged = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    message = "cannot report tag 'w1' without its line range"
+    with pytest.raises(ValueError, match=message):
+        render("tiny", [(unranged, UNCHECKED)])
+    with pytest.raises(ValueError, match=message):
+        attestations([(tag("w0", "all_users"), UNCHECKED), (unranged, UNCHECKED)])

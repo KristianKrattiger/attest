@@ -62,6 +62,14 @@ attested words, exactly as the document has them), and `control` and `scope`
   counts attestations. So tags on one passage share one verdict, and a WISP
   written as one long paragraph per line rolls all of that paragraph's
   sentences into one attestation.
+- **Grouping goes by lines, so tag wrapped sentences whole.** A sentence
+  wrapped across lines, tagged with one quote per clause, stays split into
+  separate attestations, one per line its clauses sit on. Tag a wrapped
+  sentence with a quote that spans its lines, or keep one sentence or question
+  per line.
+- **Tags group only within one document.** A claim must be tagged in the
+  document it is quoted from, and a copy of a document under another name is a
+  separate document: tags on the copy never join tags on the original.
 - A quote must appear exactly once in its document and contain at least three
   words. Quote enough to be unique.
 - An application answer of "No" is a disclosure, not an attestation, and is
