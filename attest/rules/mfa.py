@@ -2,9 +2,11 @@
 
 An account counts as enforced only when an enabled policy that requires MFA,
 covers the apps, and has no narrowing condition targets it with no exclusion
-that could remove it. Exclusions v1 cannot resolve (any group, or a role with
-no role-assignments export) count as removing every account: they can cost a
-false gap but can never back a false attestation.
+that could remove it. Exclusions v1 cannot resolve (any group, an external
+user type no export identifies, or a role with no role-assignments export)
+count as removing every account: they can cost a false gap but can never back
+a false attestation. A guest-only exclusion removes just the accounts whose
+userType is Guest.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from attest.rules.common import member_accounts, never, unchecked
 
 ALL_APPS = frozenset({"All"})
 EMAIL_APPS = frozenset({"All", "Office365"})
+GUEST_ONLY_TYPES = frozenset({"internalguest", "b2bcollaborationguest"})
 SECURITY_DEFAULTS = ("security defaults are enabled (Microsoft prompts for MFA when it judges it "
                      "necessary, not on every sign-in)")
 
@@ -47,9 +50,21 @@ def _targets(p: CaPolicy, roles: Roles, via_roles: bool) -> bool:
     return via_roles and roles is not None and bool(roles & set(p.include_roles))
 
 
+def _excludes_unidentified_types(p: CaPolicy) -> bool:
+    """Whether p excludes an external user type that only a guest userType could identify.
+
+    "internalGuest" and "b2bCollaborationGuest" are the guests the users export
+    marks. Anything else (an external member type, "unknown", or the legacy
+    "GuestsOrExternalUsers") names accounts no v1 export identifies.
+    """
+    return any(t.lower() not in GUEST_ONLY_TYPES for t in p.exclude_guest_types)
+
+
 def _excludes(p: CaPolicy, account: User, roles: Roles) -> bool:
     """Whether p does, or might, exclude this account."""
     if account.id in p.exclude_users or p.exclude_groups:
+        return True
+    if p.exclude_guest_types and (_excludes_unidentified_types(p) or account.user_type.lower() == "guest"):
         return True
     if p.exclude_roles:
         return roles is None or bool(roles & set(p.exclude_roles))
@@ -72,6 +87,9 @@ def _unresolved_exclusions(policies: list[CaPolicy], roles_by: Optional[dict]) -
     for p in policies:
         if p.exclude_groups:
             notes.append(f"'{p.name}' excludes group(s) {', '.join(p.exclude_groups)}, whose members no export lists")
+        if _excludes_unidentified_types(p):
+            notes.append(f"'{p.name}' excludes external user types {', '.join(p.exclude_guest_types)}, "
+                         "which no export identifies")
         if p.exclude_roles and roles_by is None:
             notes.append(f"'{p.name}' excludes role(s) {', '.join(p.exclude_roles)}, "
                          "and there is no role-assignments export")

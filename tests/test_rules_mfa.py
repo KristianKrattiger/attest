@@ -204,3 +204,28 @@ def test_remote_access_is_always_unchecked():
     v = mfa_remote_access(team())
     assert v.status == "unchecked"
     assert "VPN or firewall MFA" in v.reason
+
+
+def test_a_guest_only_exclusion_leaves_the_member_accounts_covered():
+    v = mfa_all_users(team(entra_ca_policies=[
+        policy(exclude_guest_types=("internalGuest", "b2bCollaborationGuest"))]))
+    assert v.status == "backed"
+
+
+def test_a_guest_admin_is_not_covered_by_a_policy_that_excludes_guests():
+    users = [user(u) for u in TEAM] + [user("gus", user_type="Guest")]
+    v = mfa_admins(admins(
+        entra_users=users,
+        entra_role_assignments=[role("gus")],
+        entra_registration=[registration(u) for u in TEAM] + [registration("gus")],
+        entra_ca_policies=[policy(exclude_guest_types=("internalGuest",))],
+    ))
+    assert (v.status, v.entities) == ("gap", (upn("gus"),))
+
+
+@pytest.mark.parametrize("types", [("b2bCollaborationMember",), ("GuestsOrExternalUsers",), ("unknown",)])
+def test_an_external_type_exclusion_no_export_identifies_counts_as_excluding_everyone(types):
+    v = mfa_all_users(team(entra_ca_policies=[policy(exclude_guest_types=types)]))
+    assert v.status == "gap"
+    assert set(v.entities) == {upn(u) for u in TEAM}
+    assert f"excludes external user types {', '.join(types)}, which no export identifies" in v.reason

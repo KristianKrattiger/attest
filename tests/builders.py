@@ -30,10 +30,11 @@ def registration(uid, registered=True):
 
 
 def policy(name="All users MFA", state="enabled", include_users=("All",), exclude_users=(), exclude_groups=(),
-           include_roles=(), exclude_roles=(), include_apps=("All",), narrowing=(), requires_mfa=True):
+           include_roles=(), exclude_roles=(), include_apps=("All",), narrowing=(), requires_mfa=True,
+           exclude_guest_types=()):
     return CaPolicy(name, name, state, tuple(include_users), tuple(exclude_users), tuple(exclude_groups),
                     tuple(include_roles), tuple(exclude_roles), tuple(include_apps), tuple(narrowing),
-                    requires_mfa, f"ca.json:{name}")
+                    requires_mfa, f"ca.json:{name}", exclude_guest_types=tuple(exclude_guest_types))
 
 
 def defaults(enabled):
