@@ -1,5 +1,7 @@
 import json
+import os
 import re
+from pathlib import Path
 
 import pytest
 
@@ -137,9 +139,22 @@ def test_a_tag_that_is_not_a_mapping_stops_the_run(tmp_path, entry):
     # blank is not grounding: a space is a substring of nearly every document
     ("quote", '" "'), ("quote", '"\\t"'), ("quote", '" \\t\\n "'), ("id", '" "'), ("doc", '" "'),
     ("control", '" "'), ("scope", '"\\t"'),
+    # invisible format characters (Unicode category Cf) are not text either: BOM, soft hyphen, zero-width space
+    ("quote", '"\\ufeff"'), ("quote", '"\\u00ad"'), ("quote", '"\\u200b"'), ("quote", '" \\u200b\\ufeff\\u00ad "'),
+    ("id", '"\\u200b"'), ("doc", '"\\ufeff"'), ("control", '"\\u00ad"'), ("scope", '"\\u200b"'),
 ])
 def test_a_tag_field_that_is_not_a_non_empty_string_stops_the_run(tmp_path, field, value):
     with pytest.raises(AttestError, match=f"tags.yaml: tag 1 field '{field}' must be a non-empty string"):
+        load_tags(_firm(tmp_path, _tags(_entry(**{field: value}))), PROFILE)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("id", '" w1"'), ("id", '"w1 "'), ("id", '"w1\\n"'), ("doc", '"attest/wisp.txt "'), ("doc", '"\\tattest/wisp.txt"'),
+    ("control", '"mfa "'), ("control", '" mfa"'), ("scope", '" all_users"'), ("scope", '"all_users\\t"'),
+])
+def test_an_id_doc_control_or_scope_with_edge_whitespace_stops_the_run(tmp_path, field, value):
+    message = f"tags.yaml: tag 1 field '{field}' has leading or trailing whitespace"
+    with pytest.raises(AttestError, match=message):
         load_tags(_firm(tmp_path, _tags(_entry(**{field: value}))), PROFILE)
 
 
@@ -189,6 +204,50 @@ def test_an_absolute_document_path_outside_the_firm_folder_is_refused(tmp_path):
 def test_a_roundabout_path_that_stays_inside_the_firm_folder_still_loads(tmp_path):
     firm = _firm(tmp_path, _tags(_entry(doc="attest/../attest/wisp.txt")))
     assert [t.id for t in load_tags(firm, PROFILE)] == ["w1"]
+
+
+@pytest.mark.parametrize("doc", [
+    "tags.yaml", "exports/users.json", "report.md", "truth.yaml", "attest/../tags.yaml", "./report.md",
+])
+def test_a_tag_may_quote_only_an_attestation_document_not_the_checks_own_files(tmp_path, doc):
+    firm = _firm(tmp_path, _tags(_entry(doc=doc)))
+    (firm / "exports").mkdir()
+    for own_file in ("exports/users.json", "report.md", "truth.yaml"):
+        (firm / own_file).write_text(WISP, encoding="utf-8")  # each holds the quote, so only the rule can refuse
+    assert "All staff use MFA." in (firm / "tags.yaml").read_text(encoding="utf-8")
+    with pytest.raises(AttestError, match=f"tags.yaml: tag 'w1': document {re.escape(doc)} is not under attest/"):
+        load_tags(firm, PROFILE)
+
+
+def test_a_document_in_a_subfolder_of_attest_loads(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(doc="attest/policies/wisp.txt")))
+    (firm / "attest" / "policies").mkdir()
+    (firm / "attest" / "policies" / "wisp.txt").write_text(WISP, encoding="utf-8")
+    assert [t.doc for t in load_tags(firm, PROFILE)] == ["attest/policies/wisp.txt"]
+
+
+def _symlink_or_skip(link, target):
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError) as e:
+        pytest.skip(f"symlinks are not available here ({type(e).__name__})")
+
+
+def test_a_symlink_in_attest_to_a_file_outside_the_firm_folder_is_refused(tmp_path):
+    firm = tmp_path / "firm"
+    firm.mkdir()
+    (tmp_path / "outside.txt").write_text(WISP, encoding="utf-8")
+    _firm(firm, _tags(_entry(doc="attest/link.txt")))
+    _symlink_or_skip(firm / "attest" / "link.txt", tmp_path / "outside.txt")
+    with pytest.raises(AttestError, match="tags.yaml: tag 'w1': document attest/link.txt is outside the firm folder"):
+        load_tags(firm, PROFILE)
+
+
+def test_a_symlink_in_attest_to_the_tags_file_is_refused(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(doc="attest/link.txt")))
+    _symlink_or_skip(firm / "attest" / "link.txt", firm / "tags.yaml")
+    with pytest.raises(AttestError, match="tags.yaml: tag 'w1': document attest/link.txt is not under attest/"):
+        load_tags(firm, PROFILE)
 
 
 def test_a_document_that_is_a_directory_is_refused(tmp_path):
@@ -246,6 +305,15 @@ def test_a_missing_profile_stops_the_run(tmp_path):
     ("mfa:\n  email: 5\n", "controls.yaml: mfa.email rule name must be a non-empty string"),
     ('mfa:\n  email: ""\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
     ("mfa:\n  email: [mfa_email]\n", "controls.yaml: mfa.email rule name must be a non-empty string"),
+    # the same rule as a tag field: some text that is neither whitespace nor an invisible format character
+    ('" ":\n  all_users: mfa_all_users\n', "controls.yaml: control name ' ' must be a non-empty string"),
+    ('"\\u200b":\n  all_users: mfa_all_users\n',
+     f"controls.yaml: control name {chr(0x200b)!r} must be a non-empty string"),
+    ('mfa:\n  " ": mfa_all_users\n', "controls.yaml: mfa.' ' scope name must be a non-empty string"),
+    ('mfa:\n  "\\t": mfa_all_users\n', f"controls.yaml: mfa.{chr(9)!r} scope name must be a non-empty string"),
+    ('mfa:\n  "\\ufeff": mfa_all_users\n', f"controls.yaml: mfa.{chr(0xfeff)!r} scope name must be a non-empty string"),
+    ('mfa:\n  email: " "\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
+    ('mfa:\n  email: "\\u00ad"\n', "controls.yaml: mfa.email rule name must be a non-empty string"),
 ])
 @pytest.mark.parametrize("rules", [None, {"mfa_all_users", "mfa_email"}])
 def test_a_profile_name_that_is_not_a_non_empty_string_stops_the_run(tmp_path, text, message, rules):
@@ -253,3 +321,110 @@ def test_a_profile_name_that_is_not_a_non_empty_string_stops_the_run(tmp_path, t
     path.write_text(text, encoding="utf-8")
     with pytest.raises(AttestError, match=re.escape(message)):
         load_profile(path, rules=rules)
+
+
+def test_a_document_that_starts_with_a_byte_order_mark_still_grounds_a_real_quote(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry()))
+    (firm / "attest" / "wisp.txt").write_bytes(b"\xef\xbb\xbf" + WISP.encode("utf-8"))
+    assert [t.quote for t in load_tags(firm, PROFILE)] == ["All staff use MFA."]
+
+
+def test_a_byte_order_mark_is_not_document_text(tmp_path):
+    # the quote starts with U+FEFF followed by real text: it matches only if the BOM were read as text
+    firm = _firm(tmp_path, _tags(_entry(quote='"\\ufeffAll staff use MFA."')))
+    (firm / "attest" / "wisp.txt").write_bytes(b"\xef\xbb\xbf" + WISP.encode("utf-8"))
+    with pytest.raises(AttestError, match="tag 'w1': quote is not an exact substring of attest/wisp.txt"):
+        load_tags(firm, PROFILE)
+
+
+# Documents are read with universal newlines: CRLF and CR become LF before a quote is matched.
+
+def test_a_quote_with_lf_line_breaks_grounds_in_a_crlf_document(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(quote='"use MFA.\\nEvery laptop"')))
+    (firm / "attest" / "wisp.txt").write_bytes(WISP.replace("\n", "\r\n").encode("utf-8"))
+    assert [t.quote for t in load_tags(firm, PROFILE)] == ["use MFA.\nEvery laptop"]
+
+
+@pytest.mark.parametrize("quote", ['"use MFA.\\r\\nEvery laptop"', '"use MFA.\\rEvery laptop"'])
+def test_a_quote_containing_a_carriage_return_is_refused(tmp_path, quote):
+    firm = _firm(tmp_path, _tags(_entry(quote=quote)))
+    (firm / "attest" / "wisp.txt").write_bytes(WISP.replace("\n", "\r\n").encode("utf-8"))
+    with pytest.raises(AttestError, match="tag 'w1': quote is not an exact substring of attest/wisp.txt"):
+        load_tags(firm, PROFILE)
+
+
+@pytest.mark.parametrize("text, message", [
+    (_tags(_entry()) + _tags(_entry(id="w2")), "tags.yaml: duplicate key 'tags' at line 3"),
+    ("tags:\n  - " + _entry()[:-1] + ", quote: Every laptop runs EDR.}\n",
+     "tags.yaml: duplicate key 'quote' at line 2"),
+    ("tags:\n  - id: w1\n    doc: attest/wisp.txt\n    id: w2\n    quote: x\n    control: mfa\n    scope: all_users\n",
+     "tags.yaml: duplicate key 'id' at line 4"),
+    ("? [a]\n: b\n", "tags.yaml: not valid YAML"),  # an unhashable key is still the base loader's error
+])
+def test_a_tags_file_with_a_repeated_key_stops_the_run(tmp_path, text, message):
+    with pytest.raises(AttestError, match=message):
+        load_tags(_firm(tmp_path, text), PROFILE)
+
+
+@pytest.mark.parametrize("text, message", [
+    ("mfa:\n  all_users: a\nmfa:\n  email: b\n", "controls.yaml: duplicate key 'mfa' at line 3"),
+    ("mfa:\n  all_users: a\n  all_users: b\n", "controls.yaml: duplicate key 'all_users' at line 3"),
+])
+def test_a_profile_with_a_repeated_key_stops_the_run(tmp_path, text, message):
+    path = tmp_path / "controls.yaml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(AttestError, match=message):
+        load_profile(path)
+
+
+def test_the_same_key_in_different_mappings_is_not_a_repeat(tmp_path):
+    second = _entry(id="w2", quote="Every laptop runs EDR.", control="edr", scope="all_endpoints")
+    assert [t.id for t in load_tags(_firm(tmp_path, _tags(_entry(), second)), PROFILE)] == ["w1", "w2"]
+
+
+def _fail_reads(monkeypatch, method, name, error):
+    real = getattr(Path, method)
+
+    def failing(self, *args, **kwargs):
+        if self.name == name:
+            raise error
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, method, failing)
+
+
+@pytest.mark.parametrize("method", ["read_text", "is_file"])
+def test_a_tags_file_that_cannot_be_read_stops_the_run(tmp_path, monkeypatch, method):
+    firm = _firm(tmp_path, _tags(_entry()))
+    _fail_reads(monkeypatch, method, "tags.yaml", PermissionError(13, "Permission denied"))
+    with pytest.raises(AttestError, match=r"tags.yaml: could not be read \(Permission denied\)"):
+        load_tags(firm, PROFILE)
+
+
+def test_a_profile_that_cannot_be_read_stops_the_run(tmp_path, monkeypatch):
+    path = tmp_path / "controls.yaml"
+    path.write_text("mfa:\n  all_users: mfa_all_users\n", encoding="utf-8")
+    _fail_reads(monkeypatch, "read_text", "controls.yaml", PermissionError(13, "Permission denied"))
+    with pytest.raises(AttestError, match=r"controls.yaml: could not be read \(Permission denied\)"):
+        load_profile(path)
+
+
+@pytest.mark.parametrize("method", ["read_text", "exists", "is_file"])
+def test_a_document_that_cannot_be_read_stops_the_run(tmp_path, monkeypatch, method):
+    firm = _firm(tmp_path, _tags(_entry()))
+    _fail_reads(monkeypatch, method, "wisp.txt", PermissionError(13, "Permission denied"))
+    message = r"tags.yaml: tag 'w1': document attest/wisp.txt could not be read \(Permission denied\)"
+    with pytest.raises(AttestError, match=message):
+        load_tags(firm, PROFILE)
+
+
+def test_a_tags_file_nested_too_deeply_stops_the_run(tmp_path):
+    with pytest.raises(AttestError, match="tags.yaml: nested too deeply"):
+        load_tags(_firm(tmp_path, "tags: " + "[" * 1000 + "\n"), PROFILE)
+
+
+def test_a_profile_nested_too_deeply_stops_the_run(tmp_path):
+    path = tmp_path / "controls.yaml"
+    path.write_text("mfa: " + "[" * 1000 + "\n", encoding="utf-8")
+    with pytest.raises(AttestError, match="controls.yaml: nested too deeply"):
+        load_profile(path)

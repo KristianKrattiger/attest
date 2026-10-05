@@ -122,3 +122,10 @@ def test_a_missing_manifest_stops_the_run(tmp_path):
     (tmp_path / "exports").mkdir()
     with pytest.raises(AttestError, match="manifest.yaml not found"):
         load_evidence(tmp_path / "exports")
+
+
+def test_a_manifest_with_two_exports_keys_stops_the_run(tmp_path):
+    # plain safe_load keeps only the last 'exports' and silently drops the first block's exports
+    exports = _exports(tmp_path, ONE_USERS_EXPORT + ONE_USERS_EXPORT, {"users.json": USERS})
+    with pytest.raises(AttestError, match="manifest.yaml: duplicate key 'exports' at line 5"):
+        load_evidence(exports)

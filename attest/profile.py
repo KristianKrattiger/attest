@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Optional
 
-from attest._yaml import read_yaml
+from attest._yaml import has_visible_text, read_yaml
 from attest.model import AttestError
 
 PROFILE_PATH = Path(__file__).resolve().parents[1] / "profile" / "controls.yaml"
@@ -27,8 +27,6 @@ def load_profile(path: Path = PROFILE_PATH, rules: Optional[Iterable[str]] = Non
 
 def _profile_mapping(path: Path) -> dict:
     """The parsed profile, which must be a non-empty mapping."""
-    if not path.is_file():
-        raise AttestError(f"{path} not found")
     data = read_yaml(path, path.name)
     if not isinstance(data, dict) or not data:
         raise AttestError(f"{path.name}: expected a mapping of controls to scopes")
@@ -36,17 +34,13 @@ def _profile_mapping(path: Path) -> dict:
 
 
 def _check_names(file: str, control: object, scopes: object) -> None:
-    """One control's name, scopes and rule names must each be a non-empty string, with at least one scope."""
-    if not _is_name(control):
+    """One control's name, scopes and rule names must each be visible text, with at least one scope."""
+    if not has_visible_text(control):
         raise AttestError(f"{file}: control name {control!r} must be a non-empty string")
     if not isinstance(scopes, dict) or not scopes:
         raise AttestError(f"{file}: control {control!r} has no scopes")
     for scope, rule in scopes.items():
-        if not _is_name(scope):
+        if not has_visible_text(scope):
             raise AttestError(f"{file}: {control}.{scope!r} scope name must be a non-empty string")
-        if not _is_name(rule):
+        if not has_visible_text(rule):
             raise AttestError(f"{file}: {control}.{scope} rule name must be a non-empty string")
-
-
-def _is_name(value: object) -> bool:
-    return isinstance(value, str) and bool(value)

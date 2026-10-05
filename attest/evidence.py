@@ -49,8 +49,6 @@ def load_evidence(exports_dir: Path) -> Evidence:
 
 def _manifest_entries(manifest: Path) -> list:
     """The raw entries of the manifest's 'exports' list; an empty manifest lists none."""
-    if not manifest.is_file():
-        raise AttestError(f"{manifest} not found")
     data = read_yaml(manifest, "manifest.yaml")
     if data is None:
         return []
