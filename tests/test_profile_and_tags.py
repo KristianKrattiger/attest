@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from attest.model import AttestError, Tag
+from attest.model import AttestError, Span, Tag
 from attest.profile import load_profile
 from attest.tags import load_tags
 
@@ -525,3 +525,25 @@ def test_a_quote_of_fewer_than_three_words_is_refused(tmp_path, quote):
 def test_a_unique_quote_of_three_words_loads(tmp_path):
     firm = _firm(tmp_path, _tags(_entry(quote='"staff use MFA."')))
     assert [t.quote for t in load_tags(firm, PROFILE)] == ["staff use MFA."]
+
+
+# Grounding records the lines of its document each quote touches (final re-review): attestations group on them.
+
+@pytest.mark.parametrize("line_end", ["\n", "\r\n"])
+def test_grounding_records_the_whole_lines_each_quote_touches(tmp_path, line_end):
+    second = _entry(id="w2", quote='"use MFA.\\nEvery laptop"', control="edr", scope="all_endpoints")
+    firm = _firm(tmp_path, _tags(_entry(quote='"staff use MFA."'), second))
+    (firm / "attest" / "wisp.txt").write_bytes(WISP.replace("\n", line_end).encode("utf-8"))
+    w1, w2 = load_tags(firm, PROFILE)
+    assert w1.span == Span(1, 1, ("All staff use MFA.",))
+    assert w2.span == Span(1, 2, ("All staff use MFA.", "Every laptop runs EDR."))
+
+
+def test_a_quote_ending_in_its_line_s_newline_touches_only_that_line(tmp_path):
+    firm = _firm(tmp_path, _tags(_entry(quote='"All staff use MFA.\\n"')))
+    assert load_tags(firm, PROFILE)[0].span == Span(1, 1, ("All staff use MFA.",))
+
+
+def test_a_span_does_not_change_which_tag_a_tag_is():
+    assert Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users", Span(1, 1, ("x",))) == Tag(
+        "w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")

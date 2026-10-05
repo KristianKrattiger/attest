@@ -1,7 +1,7 @@
 """Shared types: a confirmed tag, one loaded export, and a verdict."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Generic, Literal, Optional, TypeVar
 
@@ -14,14 +14,28 @@ class AttestError(Exception):
 
 
 @dataclass(frozen=True)
+class Span:
+    """The lines of its document a quote touches: the first and last line numbers (from 1), and those whole lines."""
+
+    first: int
+    last: int
+    lines: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Tag:
-    """One attestation, confirmed by a reviewer: its words, where they are, and what they claim."""
+    """One claim, confirmed by a reviewer: its words, where they are, and what they claim.
+
+    `span` is set when the quote is grounded in its document; it is where the tag is, not what it is, so it takes
+    no part in comparing tags.
+    """
 
     id: str
     doc: str
     quote: str
     control: str
     scope: str
+    span: Optional[Span] = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

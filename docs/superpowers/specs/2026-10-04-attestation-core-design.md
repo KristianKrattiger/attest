@@ -333,7 +333,9 @@ upper-cased or braced, an excluded role GUID upper-cased, an admin excluded
 from the all-users policy, an unhealthy Defender-only machine, an unprotected
 disabled account in Veeam, a users export two days older, an offset-less
 `lastSeen`, a single-object users export) each give the verdict, or the input
-error, they should.
+error, they should; and each compound WISP line tagged by clause instead of
+whole is still one unchecked attestation quoting the whole line, with no
+section showing a fragment.
 
 This is a regression check, not a blind test: the builder wrote the firm and
 the rules are deterministic. The blind firm of sub-project 2 tests the rules
@@ -486,11 +488,17 @@ sections above, these win. Each line says what the tool does, then why.
   words, a word being a whitespace-separated token with a letter or digit in
   it (decision 2). Why: a short or repeated quote does not say which passage
   is attested.
-- Several tags may share one quote, and every claim in a quote gets a tag.
-  An attestation is a distinct (document, quote) pair; its verdict is the
-  worst of its tags' (any gap, else any unchecked, else backed) (decision 1).
-  Why: a quote that makes two claims, tagged with one scope, would come out
-  backed on evidence for only one of them.
+- Several tags may share one quote, and every claim in a quote gets a tag
+  (decision 1). An attestation is the set of document lines its tags touch:
+  grounding records the line range each quote touches, in the same LF text,
+  and tags in one document whose ranges meet, directly or through other tags,
+  are one attestation (final re-review). Its verdict is the worst of its
+  tags' (any gap, else any unchecked, else backed), so tags on one passage
+  share one verdict, and a WISP written as one long paragraph per line rolls
+  all of that paragraph's sentences into one attestation. Why: a quote that
+  makes two claims, tagged with one scope, would come out backed on evidence
+  for only one of them, and tagging its clauses separately must not show a
+  backed fragment of a passage that also makes another claim.
 - Two always-unchecked scopes take the claims no v1 export speaks to:
   `edr.alert_monitoring` ("no export in v1 shows that alerts are monitored")
   and `backup.m365_files` ("no export in v1 shows OneDrive or SharePoint
@@ -513,9 +521,10 @@ sections above, these win. Each line says what the tool does, then why.
 
 **Report**
 
-- One section per attestation, headed by its combined verdict, lists each of
-  its tags with its control and scope, verdict, reason, population, entities
-  and cited rows; the count line counts attestations. Firm text stays on one
+- One section per attestation quotes its whole lines, is headed by its
+  combined verdict, and lists each of its tags with its control and scope,
+  verdict, reason, population, entities and cited rows; the count line counts
+  attestations. Firm text stays on one
   line, and a quote stays inside its blockquote. Why: a firm's words must not
   start a heading or list of the report.
 - Under the count line, an exports table gives each export's reader, file,

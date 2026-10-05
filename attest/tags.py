@@ -1,14 +1,17 @@
 """Confirmed tags, each grounded in its document (spec: Pipeline, step 1).
 
 A quote must appear exactly once in its document and hold at least three words, so that it names one passage and
-says something; several tags may share one quote, one for each claim the passage makes.
+says something; several tags may share one quote, one for each claim the passage makes. Grounding records the lines
+each quote touches (its span), in the same newline-normalised text it is found in: the report groups tags whose
+lines meet into one attestation.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from attest._yaml import has_invisible_edge, has_letter_or_digit, read_yaml
-from attest.model import AttestError, Tag
+from attest.model import AttestError, Span, Tag
 from attest.profile import Profile
 
 FIELDS = ("id", "doc", "quote", "control", "scope")
@@ -37,7 +40,7 @@ def load_tags(firm: Path, profile: Profile) -> list[Tag]:
         if found > 1:
             raise AttestError(
                 f"tags.yaml: tag {tag.id!r}: quote appears {found} times in {tag.doc}; quote enough to be unique")
-        tags.append(tag)
+        tags.append(replace(tag, span=_span(documents[tag.doc], tag.quote)))
     return tags
 
 
@@ -93,6 +96,14 @@ def _occurrences(text: str, quote: str) -> int:
         count += 1
         at = text.find(quote, at + 1)
     return count
+
+
+def _span(text: str, quote: str) -> Span:
+    """The lines of text the quote's one occurrence touches: a newline belongs to the line it ends."""
+    start = text.find(quote)
+    first = text.count("\n", 0, start) + 1
+    last = text.count("\n", 0, start + len(quote) - 1) + 1
+    return Span(first, last, tuple(text.split("\n")[first - 1:last]))
 
 
 def _check_in_profile(tag: Tag, profile: Profile) -> None:

@@ -11,7 +11,9 @@ from attest.__main__ import main
 from attest.compare import check, run
 from attest.evidence import Evidence
 from attest.model import Export, Tag, Verdict
+from attest.profile import load_profile
 from attest.report import attestations, combined_status, render
+from attest.tags import load_tags
 
 ANN = "a0000000-0000-4000-8000-000000000001"
 USERS = {"value": [{"id": ANN, "userPrincipalName": "ann@firm.example", "displayName": "Ann",
@@ -498,3 +500,60 @@ def test_a_file_name_cannot_break_the_exports_table_and_the_time_is_shown_in_utc
     users = Export("a|b\n## x.json", datetime(2026, 10, 1, 10, tzinfo=timezone(timedelta(hours=-5))), ())
     text = render("tiny", [(tag, Verdict("unchecked", "r"))], Evidence(entra_users=users))
     assert "\n| `entra_users` | `a\\|b ## x.json` | 2026-10-01T15:00:00+00:00 | 0 |\n" in text
+
+
+# An attestation is the set of document lines its tags touch (final re-review): tags in one document whose line ranges
+# meet, transitively, are one attestation, quoted as those whole lines.
+
+LINES = ("Line one says all staff use MFA on every account.\n"
+         "Line two says every laptop runs EDR at all times.\n"
+         "Line three says backups run every single night.\n")
+
+
+def grounded(tmp_path, *quotes):
+    """Tags w1, w2, ... on these quotes of a three-line document, grounded by load_tags, so with their spans."""
+    (tmp_path / "attest").mkdir()
+    (tmp_path / "attest" / "doc.txt").write_text(LINES, encoding="utf-8")
+    entries = [f"  - {{id: w{i}, doc: attest/doc.txt, quote: {json.dumps(quote)}, control: mfa, "
+               "scope: remote_access}\n" for i, quote in enumerate(quotes, start=1)]
+    (tmp_path / "tags.yaml").write_text("tags:\n" + "".join(entries), encoding="utf-8")
+    return load_tags(tmp_path, load_profile())
+
+
+def groups(tags):
+    return [[t.id for t, _ in tagged] for _, _, tagged in attestations([(t, UNCHECKED) for t in tags])]
+
+
+def test_tags_on_different_lines_stay_separate_attestations(tmp_path):
+    tags = grounded(tmp_path, "all staff use MFA", "every laptop runs EDR")
+    assert groups(tags) == [["w1"], ["w2"]]
+    assert "\nbacked 0, gap 0, unchecked 2\n" in render("tiny", [(t, UNCHECKED) for t in tags])
+
+
+@pytest.mark.parametrize("other", ["Line one says", "Line two says every"])
+def test_a_quote_spanning_two_lines_groups_with_a_tag_on_either_line(tmp_path, other):
+    tags = grounded(tmp_path, "every account.\nLine two", other, "backups run every single night")
+    assert groups(tags) == [["w1", "w2"], ["w3"]]
+    (_, passage, _), _ = attestations([(t, UNCHECKED) for t in tags])
+    assert passage == "\n".join(LINES.splitlines()[:2])
+
+
+def test_tags_join_one_attestation_through_a_tag_that_touches_both(tmp_path):
+    tags = grounded(tmp_path, "Line one says", "Line two says every", "every account.\nLine two")
+    assert groups(tags) == [["w1", "w2", "w3"]]
+
+
+def test_tags_in_different_documents_never_join(tmp_path):
+    tags = grounded(tmp_path, "all staff use MFA", "every laptop runs EDR")
+    moved = Tag("w2", "attest/other.txt", tags[0].quote, "mfa", "remote_access", tags[0].span)
+    assert groups([tags[0], moved]) == [["w1"], ["w2"]]
+
+
+def test_an_attestation_quotes_the_whole_lines_its_tags_touch_under_their_worst_verdict(tmp_path):
+    tags = grounded(tmp_path, "staff use MFA", "every account.\nLine two")
+    text = render("tiny", [(tags[0], BACKED), (tags[1], UNCHECKED)])
+    assert headings(text)[1:] == ["## w1, w2: UNCHECKED"]
+    assert ("\n\n> Line one says all staff use MFA on every account.\n"
+            "> Line two says every laptop runs EDR at all times.\n\n- document: `attest/doc.txt`\n") in text
+    assert "\nbacked 0, gap 0, unchecked 1\n" in text
+    assert "> staff use MFA\n" not in text

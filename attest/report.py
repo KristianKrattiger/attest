@@ -1,9 +1,11 @@
 """The Markdown report: a count line, the exports, then one section per attestation (spec: Pipeline, step 4).
 
-An attestation is one quote in one document. Several tags may share it, one per claim it makes; its section is
-headed by the worst of their verdicts (any gap makes it a gap, else any unchecked makes it unchecked, else it is
-backed) and lists each tag with its own verdict. The count line counts attestations, not tags. Under it, when the
-run's evidence is given, a table lists every export: its reader, file, exported_at in UTC and row count.
+An attestation is the set of document lines its tags touch: tags in one document whose line ranges meet, directly
+or through other tags, are one attestation, however their quotes divide the passage. Its section quotes those whole
+lines, is headed by the worst of its tags' verdicts (any gap makes it a gap, else any unchecked makes it unchecked,
+else it is backed), and lists each tag with its own verdict. So no section shows a backed fragment of lines that
+another tag finds unchecked or failing. The count line counts attestations, not tags. Under it, when the run's
+evidence is given, a table lists every export: its reader, file, exported_at in UTC and row count.
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
 TITLE = "# Attestation check:"  # how every report this tool writes begins
 _ONE_LINE = str.maketrans("\r\n", "  ")
 
-Attestation = tuple[str, str, list[tuple[Tag, Verdict]]]  # doc, quote, and each tag on it with its verdict
+Attestation = tuple[str, str, list[tuple[Tag, Verdict]]]  # doc, its whole lines, and each tag on them with its verdict
 
 
 def one_line(text: str) -> str:
@@ -30,12 +32,49 @@ def one_line(text: str) -> str:
     return text.translate(_ONE_LINE)
 
 
+def _same_passage(a: Tag, b: Tag) -> bool:
+    """Whether two tags touch a common line of one document.
+
+    A tag with no span (one built by hand, never grounded) is on the same passage only as an unspanned tag with the
+    same quote.
+    """
+    if a.doc != b.doc:
+        return False
+    if a.span is None or b.span is None:
+        return a.span is None and b.span is None and a.quote == b.quote
+    return a.span.first <= b.span.last and b.span.first <= a.span.last
+
+
+def _passage(tags: list[Tag]) -> str:
+    """The whole lines the tags touch, first to last; the quote itself for tags with no span."""
+    lines: dict[int, str] = {}
+    for span in (tag.span for tag in tags if tag.span is not None):
+        lines.update(enumerate(span.lines, start=span.first))
+    if not lines:
+        return tags[0].quote
+    return "\n".join(lines[n] for n in range(min(lines), max(lines) + 1))  # spans that meet leave no line out
+
+
 def attestations(results: list[tuple[Tag, Verdict]]) -> list[Attestation]:
-    """The results grouped by attestation (a distinct doc and quote), in the order each first appears."""
-    grouped: dict[tuple[str, str], list[tuple[Tag, Verdict]]] = {}
-    for tag, verdict in results:
-        grouped.setdefault((tag.doc, tag.quote), []).append((tag, verdict))
-    return [(doc, quote, tagged) for (doc, quote), tagged in grouped.items()]
+    """The results grouped by attestation, in the order each first appears, with their tags in result order.
+
+    Tags whose lines meet are joined transitively: a tag spanning two lines joins the tags on either line.
+    """
+    group = list(range(len(results)))
+
+    def root(i: int) -> int:
+        while group[i] != i:
+            i = group[i]
+        return i
+
+    for i, (tag, _) in enumerate(results):
+        for j in range(i):
+            if _same_passage(tag, results[j][0]):
+                group[root(i)] = root(j)
+    grouped: dict[int, list[tuple[Tag, Verdict]]] = {}
+    for i, result in enumerate(results):
+        grouped.setdefault(root(i), []).append(result)
+    return [(tagged[0][0].doc, _passage([tag for tag, _ in tagged]), tagged) for tagged in grouped.values()]
 
 
 def combined_status(statuses: Iterable[Status]) -> Status:
@@ -97,16 +136,16 @@ def _tag_lines(tag: Tag, verdict: Verdict) -> list[str]:
 def render(firm_name: str, results: list[tuple[Tag, Verdict]], evidence: Optional[Evidence] = None) -> str:
     for _, verdict in results:
         _require_statable(verdict)
-    sections = [(doc, quote, tagged, combined_status(v.status for _, v in tagged))
-                for doc, quote, tagged in attestations(results)]
+    sections = [(doc, passage, tagged, combined_status(v.status for _, v in tagged))
+                for doc, passage, tagged in attestations(results)]
     counts = Counter(status for *_, status in sections)
     lines = [f"{TITLE} {one_line(firm_name)}", "",
              f"backed {counts['backed']}, gap {counts['gap']}, unchecked {counts['unchecked']}", ""]
     if evidence is not None:
         lines += [*_exports_table(evidence), ""]
-    for doc, quote, tagged, status in sections:
+    for doc, passage, tagged, status in sections:
         ids = ", ".join(one_line(tag.id) for tag, _ in tagged)
-        lines += [f"## {ids}: {status.upper()}", "", *_quote(quote), "", f"- document: `{one_line(doc)}`"]
+        lines += [f"## {ids}: {status.upper()}", "", *_quote(passage), "", f"- document: `{one_line(doc)}`"]
         for tag, verdict in tagged:
             lines += _tag_lines(tag, verdict)
         lines.append("")

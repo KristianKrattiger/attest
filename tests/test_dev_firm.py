@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from attest.compare import check
+from attest.compare import check, run
 from attest.model import AttestError
-from attest.report import attestations, combined_status
+from attest.report import attestations, combined_status, render
 
 DEV = Path(__file__).resolve().parents[1] / "firm" / "dev"
 
@@ -173,3 +173,45 @@ def test_a_mutation_of_the_healed_dev_firm_gets_the_verdict_it_should(tmp_path, 
     for tag_id, (status, entities) in expected.items():
         verdict = verdicts[tag_id]
         assert (verdict.status, sorted(verdict.entities)) == (status, sorted(entities)), (tag_id, verdict.reason)
+
+
+# A compound sentence tagged by clause is still one attestation (final re-review probes N1 and N1b): its section quotes
+# the whole line under the worst verdict of its tags, and no section shows a fragment.
+
+def _requote(quotes):
+    """An edit of the copy's tags.yaml: each tag named in quotes gets that quote."""
+    def apply(exports):
+        path = exports.parent / "tags.yaml"
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for tag in data["tags"]:
+            tag["quote"] = quotes.get(tag["id"], tag["quote"])
+        assert set(quotes) <= {tag["id"] for tag in data["tags"]}
+        path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return apply
+
+
+BACKUP_LINE = "Email and files in Microsoft 365 are backed up every night with Veeam."
+EDR_LINE = "Every company laptop runs Microsoft Defender for Business, which is monitored for alerts."
+CLAUSES = {
+    "N1": ({"wisp-backup-files": "and files in Microsoft 365", "wisp-edr-alerts": "which is monitored for alerts."},
+           {"wisp-backup, wisp-backup-files": BACKUP_LINE, "wisp-edr, wisp-edr-alerts": EDR_LINE}),
+    "N1b": ({"wisp-backup": "are backed up every night with Veeam.",
+             "wisp-backup-files": "Email and files in Microsoft 365"},
+            {"wisp-backup, wisp-backup-files": BACKUP_LINE, "wisp-edr, wisp-edr-alerts": EDR_LINE}),
+}
+
+
+@pytest.mark.parametrize("probe", list(CLAUSES))
+def test_a_compound_sentence_tagged_by_clause_is_one_unchecked_attestation_quoting_its_whole_line(tmp_path, probe):
+    quotes, compound = CLAUSES[probe]
+    firm = _copy(tmp_path, *HEAL, _requote(quotes))
+    text = render("dev", *run(firm))
+    lines = {line for doc in ("application.txt", "wisp.txt")
+             for line in (firm / "attest" / doc).read_text(encoding="utf-8").splitlines()}
+    sections = {section.splitlines()[0]: section.splitlines() for section in text.split("\n## ")[1:]}
+    for heading, section in sections.items():
+        quoted = [line[2:] for line in section if line.startswith("> ")]
+        assert quoted and all(q in lines for q in quoted), heading  # whole lines only, never a fragment
+    for ids, line in compound.items():
+        assert f"> {line}" in sections[f"{ids}: UNCHECKED"]
+    assert "\nbacked 6, gap 0, unchecked 6\n" in text

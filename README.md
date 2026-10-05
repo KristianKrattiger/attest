@@ -47,12 +47,18 @@ Each tag has exactly these fields: `id` (unique), `doc` (a file under
 and `control` and `scope` (a pair from `profile/controls.yaml`).
 
 - **Every claim in a quote gets a tag.** Several tags may share one quote, as
-  above: the quote is one attestation, its verdict is the worst of its tags'
-  (any gap, else any unchecked, else backed), and the report's count line
-  counts attestations. A claim no export speaks to still gets a tag, on one of
-  the always-unchecked scopes (`mfa.remote_access`, `edr.alert_monitoring`,
-  `backup.m365_files`, `backup.servers`, `backup.offline_copy`,
-  `backup.restore_tested`).
+  above, or quote different clauses of one passage. A claim no export speaks
+  to still gets a tag, on one of the always-unchecked scopes
+  (`mfa.remote_access`, `edr.alert_monitoring`, `backup.m365_files`,
+  `backup.servers`, `backup.offline_copy`, `backup.restore_tested`).
+- **An attestation is the lines its tags touch.** Tags in one document whose
+  quotes touch a common line, directly or through a tag whose quote spans
+  several lines, are one attestation. The report quotes those whole lines,
+  heads them with the worst of the tags' verdicts (any gap, else any
+  unchecked, else backed) and lists each tag with its own; the count line
+  counts attestations. So tags on one passage share one verdict, and a WISP
+  written as one long paragraph per line rolls all of that paragraph's
+  sentences into one attestation.
 - A quote must appear exactly once in its document and contain at least three
   words. Quote enough to be unique.
 - An application answer of "No" is a disclosure, not an attestation, and is
