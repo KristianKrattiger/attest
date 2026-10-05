@@ -12,6 +12,14 @@ the same Entra device and so the same machine. Two Entra devices are never
 paired by name, and when Defender holds several records for one Entra device
 (a re-imaged device leaves an old one) the latest lastSeen decides; a tie for
 the latest is a gap, because nothing says which record is the device.
+
+A Defender machine no Intune device could be is outside the population, but
+not ignored (decision 3, 2026-10-05): one Defender could onboard (any status
+but Unsupported), seen within STALE_AFTER of the export and not after it, that
+is not onboarded and Active is a gap, because it is an endpoint Defender shows
+unprotected now. One seen earlier, or never, is listed with when it was last
+seen and changes nothing. The Intune and Defender exports must be taken within
+24 hours of each other, or the verdict is unchecked.
 """
 from __future__ import annotations
 
@@ -24,7 +32,7 @@ from attest.evidence import Evidence
 from attest.model import Verdict
 from attest.readers.defender_machines import Machine
 from attest.readers.intune_devices import IntuneDevice
-from attest.rules.common import never, unchecked
+from attest.rules.common import exports_apart, never, unchecked
 
 STALE_AFTER = timedelta(days=7)
 
@@ -126,12 +134,27 @@ def _problems(machine: Machine, exported_at: datetime) -> list[str]:
     return problems
 
 
+def _seen_recently(machine: Machine, exported_at: datetime) -> bool:
+    """Whether the machine was last seen within STALE_AFTER of the export, and not after it."""
+    return machine.last_seen is not None and exported_at - STALE_AFTER <= machine.last_seen <= exported_at
+
+
+def _outside_failure(machine: Machine, exported_at: datetime) -> Optional[str]:
+    """Why a machine outside the population is a gap: seen recently, onboardable, and not healthy; else None."""
+    problems = _problems(machine, exported_at)
+    if problems and _seen_recently(machine, exported_at) and machine.onboarding.lower() != "unsupported":
+        return ", ".join(problems)
+    return None
+
+
 def edr_all_endpoints(evidence: Evidence) -> Verdict:
     intune, defender = evidence.intune_devices, evidence.defender_machines
     if intune is None:
         return unchecked("no Intune managed-devices export (intune_devices)")
     if defender is None:
         return unchecked("no Defender device export (defender_machines)")
+    if (apart := exports_apart(intune, defender)) is not None:
+        return apart
     if not intune.items:
         return unchecked(f"the population is empty: {intune.file} lists no devices")
     population = f"{len(intune.items)} devices from {intune.file}"
@@ -157,12 +180,22 @@ def edr_all_endpoints(evidence: Evidence) -> Verdict:
     if matched_by:
         notes += f"; matched by {matched_by}"
     notes += "".join("; " + note for note in set_aside)
-    outside = [m.name for m in _outside(intune.items, defender.items)]
-    if outside:
-        notes += "; in Defender but not Intune (outside the population): " + ", ".join(outside)
-    if failing:
-        reason = "; ".join(f"{d.name}: {why}" for d, why in failing) + notes
-        return Verdict("gap", reason, tuple(d.name for d, _ in failing), tuple(cited), population)
+    unhealthy: list[tuple[Machine, str]] = []
+    listed: list[str] = []
+    for m in _outside(intune.items, defender.items):
+        if (why := _outside_failure(m, defender.exported_at)) is not None:
+            unhealthy.append((m, why))
+        else:
+            problems = _problems(m, defender.exported_at)  # none, or why it is not seen recently, or Unsupported
+            listed.append(m.name + (f" ({', '.join(problems)})" if problems else ""))
+    if listed:
+        notes += "; in Defender but not Intune (outside the population): " + ", ".join(listed)
+    if failing or unhealthy:
+        parts = [f"{d.name}: {why}" for d, why in failing]
+        parts += [f"in Defender but not Intune and not healthy: {m.name}: {why}" for m, why in unhealthy]
+        entities = tuple(d.name for d, _ in failing) + tuple(m.name for m, _ in unhealthy)
+        cited += [m.cite for m, _ in unhealthy]
+        return Verdict("gap", "; ".join(parts) + notes, entities, tuple(cited), population)
     reason = (f"all {len(intune.items)} devices onboarded to Defender, Active, and seen within {STALE_AFTER.days} days "
               f"of {defender.exported_at.date().isoformat()}" + notes)
     return Verdict("backed", reason, cited=(intune.file, defender.file), population=population)

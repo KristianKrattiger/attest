@@ -7,8 +7,10 @@ Planted truth (firm/dev/truth.yaml):
 - Carmen Diaz's mailbox is not backed up by Veeam;
 - a pilot policy that would cover everyone is report-only, so it enforces nothing;
 - Defender reports Hana Sato's laptop without an Entra device ID, so it must match by name;
-- a file server is in Defender but not Intune, so it sits outside the EDR population;
-- a disabled former employee and a guest auditor are left out of the population;
+- a file server is in Defender but not Intune, so it sits outside the EDR population (it is healthy, so it is
+  only listed);
+- a disabled former employee and a guest auditor are left out of the account population; the former employee's
+  mailbox is still in the Veeam export (and backed up), so the backup population counts it;
 - everything else is in order, so the admin-MFA attestations are genuinely backed.
 
 Run from the repo root:  venv/Scripts/python.exe scripts/build_dev_firm.py

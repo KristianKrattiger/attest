@@ -1,5 +1,6 @@
 """Small constructors for rule tests: evidence built from records, not files."""
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from attest.evidence import Evidence
 from attest.model import Export
@@ -78,3 +79,9 @@ def export(items, file="export.json", at=NOW):
 def evidence(**exports):
     """Evidence(entra_users=[...], ...) with each list wrapped as an export named <field>.json, taken at NOW."""
     return Evidence(**{name: export(items, file=f"{name}.json") for name, items in exports.items()})
+
+
+def taken(evidence, field, hours):
+    """The evidence with one export taken `hours` earlier (negative: later) than NOW."""
+    export = getattr(evidence, field)
+    return replace(evidence, **{field: replace(export, exported_at=NOW - timedelta(hours=hours))})

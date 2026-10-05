@@ -1,16 +1,23 @@
-"""The Markdown report: a count line, then one section per attestation (spec: Pipeline, step 4).
+"""The Markdown report: a count line, the exports, then one section per attestation (spec: Pipeline, step 4).
 
 An attestation is one quote in one document. Several tags may share it, one per claim it makes; its section is
 headed by the worst of their verdicts (any gap makes it a gap, else any unchecked makes it unchecked, else it is
-backed) and lists each tag with its own verdict. The count line counts attestations, not tags.
+backed) and lists each tag with its own verdict. The count line counts attestations, not tags. Under it, when the
+run's evidence is given, a table lists every export: its reader, file, exported_at in UTC and row count.
 """
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections import Counter
 from collections.abc import Iterable
+from datetime import timezone
+from typing import TYPE_CHECKING, Optional
 
 from attest.model import Status, Tag, Verdict
+
+if TYPE_CHECKING:
+    from attest.evidence import Evidence
 
 TITLE = "# Attestation check:"  # how every report this tool writes begins
 _ONE_LINE = str.maketrans("\r\n", "  ")
@@ -55,6 +62,24 @@ def _require_statable(verdict: Verdict) -> None:
         raise ValueError("cannot report a backed verdict without its population")
 
 
+def _cell(text: str) -> str:
+    """Firm text as one table cell: on one line, with no bare pipe to split the cell."""
+    return one_line(text).replace("|", "\\|")
+
+
+def _exports_table(evidence: Evidence) -> list[str]:
+    """Each export the run read: reader, file, exported_at in UTC, and row count."""
+    exports = [(field.name, export) for field in dataclasses.fields(evidence)
+               if (export := getattr(evidence, field.name)) is not None]
+    if not exports:
+        return ["Exports: none"]
+    lines = ["Exports:", "", "| reader | file | exported_at (UTC) | rows |", "|---|---|---|---|"]
+    for reader, export in exports:
+        when = export.exported_at.astimezone(timezone.utc).isoformat()
+        lines.append(f"| `{reader}` | `{_cell(export.file)}` | {when} | {len(export.items)} |")
+    return lines
+
+
 def _tag_lines(tag: Tag, verdict: Verdict) -> list[str]:
     """One tag under its attestation: its verdict, then its control and scope and what the verdict rests on."""
     lines = [f"- tag {one_line(tag.id)}: {verdict.status.upper()}",
@@ -69,7 +94,7 @@ def _tag_lines(tag: Tag, verdict: Verdict) -> list[str]:
     return lines
 
 
-def render(firm_name: str, results: list[tuple[Tag, Verdict]]) -> str:
+def render(firm_name: str, results: list[tuple[Tag, Verdict]], evidence: Optional[Evidence] = None) -> str:
     for _, verdict in results:
         _require_statable(verdict)
     sections = [(doc, quote, tagged, combined_status(v.status for _, v in tagged))
@@ -77,6 +102,8 @@ def render(firm_name: str, results: list[tuple[Tag, Verdict]]) -> str:
     counts = Counter(status for *_, status in sections)
     lines = [f"{TITLE} {one_line(firm_name)}", "",
              f"backed {counts['backed']}, gap {counts['gap']}, unchecked {counts['unchecked']}", ""]
+    if evidence is not None:
+        lines += [*_exports_table(evidence), ""]
     for doc, quote, tagged, status in sections:
         ids = ", ".join(one_line(tag.id) for tag, _ in tagged)
         lines += [f"## {ids}: {status.upper()}", "", *_quote(quote), "", f"- document: `{one_line(doc)}`"]

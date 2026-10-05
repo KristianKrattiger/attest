@@ -11,6 +11,11 @@ is Guest.
 
 An account the registration export has no row for is missing evidence, not a
 failure: the verdict is unchecked unless something else already shows a gap.
+
+The exports a verdict reads (the population's, registration, security
+defaults when exported, Conditional Access unless security defaults are on,
+and role assignments when a rule reads them) must be taken within 24 hours of
+one another, or the verdict is unchecked.
 """
 from __future__ import annotations
 
@@ -23,7 +28,7 @@ from attest.readers.entra_ca_policies import CaPolicy
 from attest.readers.entra_registration import Registration
 from attest.readers.entra_role_assignments import RoleAssignment
 from attest.readers.entra_users import User
-from attest.rules.common import member_accounts, never, not_counted, unchecked
+from attest.rules.common import exports_apart, member_accounts, never, not_counted, unchecked
 
 ALL_APPS = frozenset({"All"})
 EMAIL_APPS = frozenset({"All", "Office365"})
@@ -50,11 +55,12 @@ class Roles:
 
 @dataclass(frozen=True)
 class Enforcement:
-    """What the verdict says enforces MFA, and the rows that show it."""
+    """What the verdict says enforces MFA, the rows that show it, and the exports read to say so."""
 
     how: str
     cited: tuple[str, ...]
-    policies: Optional[tuple[CaPolicy, ...]]  # None: security defaults, which cover every account
+    policies: Optional[tuple[CaPolicy, ...]]  # None: security defaults, which cover every account; (): nothing does
+    read: tuple[Export, ...]
 
 
 def _index_roles(assignments: Optional[Export[RoleAssignment]]) -> Optional[Roles]:
@@ -141,22 +147,25 @@ def _unresolved_exclusions(policies: tuple[CaPolicy, ...], roles: Optional[Roles
     return notes
 
 
-def _enforcement(evidence: Evidence, apps: frozenset[str], via_roles: bool,
-                 population_desc: str) -> Enforcement | Verdict:
-    """What enforces MFA here, or the verdict that ends the check: unchecked without evidence, gap without enforcement."""
+def _enforcement(evidence: Evidence, apps: frozenset[str], via_roles: bool) -> Enforcement | Verdict:
+    """What enforces MFA here (no policies when nothing does), or unchecked when the evidence to say is missing."""
     defaults, ca = evidence.entra_security_defaults, evidence.entra_ca_policies
     if defaults is not None and defaults.items[0].enabled:
-        return Enforcement(SECURITY_DEFAULTS, (defaults.items[0].cite,), None)
+        return Enforcement(SECURITY_DEFAULTS, (defaults.items[0].cite,), None, (defaults,))
     if ca is None:
         return unchecked("no Conditional Access export (entra_ca_policies), "
                          "and security defaults are not shown enabled")
     enforcing = tuple(p for p in ca.items if _enforces(p, apps, via_roles))
-    if enforcing:
-        return Enforcement("enforced by " + ", ".join(f"'{p.name}'" for p in enforcing),
-                           tuple(p.cite for p in enforcing), enforcing)
-    if defaults is None:
+    if not enforcing and defaults is None:
         return unchecked("no Conditional Access policy enforces MFA here, and there is no "
                          "security-defaults export (entra_security_defaults) to rule security defaults out")
+    return Enforcement("enforced by " + ", ".join(f"'{p.name}'" for p in enforcing),
+                       tuple(p.cite for p in enforcing), enforcing, (ca,) if defaults is None else (defaults, ca))
+
+
+def _no_enforcement(evidence: Evidence, apps: frozenset[str], via_roles: bool, population_desc: str) -> Verdict:
+    """The gap when no Conditional Access policy enforces MFA here and security defaults are shown off."""
+    defaults, ca = evidence.entra_security_defaults, evidence.entra_ca_policies
     misses = [(p, why) for p in ca.items if (why := _near_miss(p, apps, via_roles))]
     reason = "no enforcement: no enabled Conditional Access policy requires MFA here without narrowing conditions"
     if misses:
@@ -184,17 +193,24 @@ def _registration_status(population: tuple[User, ...],
 
 
 def _check(evidence: Evidence, population: tuple[User, ...], population_desc: str,
-           apps: frozenset[str], via_roles: bool) -> Verdict:
+           apps: frozenset[str], via_roles: bool, population_exports: tuple[Export, ...]) -> Verdict:
     """The shared MFA rule: every counted account enforced, and every one registered."""
-    if not population:
-        return unchecked("the population is empty: " + population_desc)
     registration = evidence.entra_registration
     if registration is None:
         return unchecked("no MFA registration export (entra_registration)")
-    source = _enforcement(evidence, apps, via_roles, population_desc)
+    source = _enforcement(evidence, apps, via_roles)
     if isinstance(source, Verdict):
         return source
     roles = _index_roles(evidence.entra_role_assignments)
+    read = [*population_exports, registration, *source.read]
+    if roles is not None and any(p.exclude_roles for p in source.policies or ()):  # exclusions read role holders
+        read.append(evidence.entra_role_assignments)
+    if (apart := exports_apart(*read)) is not None:
+        return apart
+    if not population:
+        return unchecked("the population is empty: " + population_desc)
+    if source.policies == ():
+        return _no_enforcement(evidence, apps, via_roles, population_desc)
     not_enforced = [] if source.policies is None else _uncovered(population, source.policies, roles, via_roles)
     not_registered, no_record = _registration_status(population, registration)
     if not_enforced or not_registered:
@@ -220,7 +236,8 @@ def _member_accounts_rule(evidence: Evidence, apps: frozenset[str]) -> Verdict:
     if evidence.entra_users is None:
         return unchecked("no users export (entra_users)")
     population, description = member_accounts(evidence.entra_users)
-    return _check(evidence, population, description, apps, via_roles=False)
+    return _check(evidence, population, description, apps, via_roles=False,
+                  population_exports=(evidence.entra_users,))
 
 
 def mfa_all_users(evidence: Evidence) -> Verdict:
@@ -259,7 +276,8 @@ def mfa_admins(evidence: Evidence) -> Verdict:
         left_out.append("service principals " + ", ".join(service_principals))
     description = not_counted(f"{len(population)} enabled accounts holding admin roles, from {assignments.file}",
                               left_out)
-    return _check(evidence, population, description, ALL_APPS, via_roles=True)
+    return _check(evidence, population, description, ALL_APPS, via_roles=True,
+                  population_exports=(assignments, users))
 
 
 mfa_remote_access = never("no export in this stack shows VPN or firewall MFA")

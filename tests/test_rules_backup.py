@@ -7,7 +7,7 @@ from attest.readers.veeam_users import VeeamUser
 from attest.rules import backup
 from attest.rules.backup import (
     backup_m365_files, backup_m365_mailboxes, backup_offline_copy, backup_restore_tested, backup_servers)
-from builders import NOW, evidence, mailbox, upn, user
+from builders import NOW, evidence, mailbox, taken, upn, user
 
 TEAM = ["ann", "bob", "cy"]
 
@@ -135,3 +135,73 @@ def test_scopes_no_v1_export_speaks_to_are_always_unchecked(rule, why):
 def test_onedrive_and_sharepoint_backups_are_always_unchecked():
     v = backup_m365_files(office())
     assert (v.status, v.reason) == ("unchecked", "no export in v1 shows OneDrive or SharePoint backups")
+
+
+# Shared mailboxes are disabled user objects (decision 3, 2026-10-05): a disabled account Veeam lists joins the
+# population; a Veeam row that matches no account at all is listed and changes nothing.
+
+def test_an_unprotected_disabled_account_veeam_lists_is_a_gap():
+    users = [user(u) for u in TEAM] + [user("info", enabled=False)]
+    v = backup_m365_mailboxes(office(entra_users=users, veeam_users=[mailbox(u) for u in TEAM] +
+                                     [mailbox("info", backed_up=False)]))
+    assert (v.status, v.entities) == ("gap", (upn("info"),))
+    assert v.reason.startswith(f"{upn('info')}: mailbox not backed up; ")
+    assert v.population == ("3 enabled member accounts from entra_users.json; "
+                            f"plus disabled accounts Veeam lists: {upn('info')}")
+
+
+def test_a_protected_disabled_account_veeam_lists_is_counted_and_named():
+    users = [user(u) for u in TEAM] + [user("info", enabled=False), user("old", enabled=False)]
+    v = backup_m365_mailboxes(office(entra_users=users, veeam_users=[mailbox(u) for u in TEAM + ["info"]]))
+    assert v.status == "backed"
+    assert v.reason.startswith("all 4 mailboxes backed up within 24 hours of ")
+    assert v.population == ("3 enabled member accounts from entra_users.json; "
+                            f"plus disabled accounts Veeam lists: {upn('info')}; not counted: disabled {upn('old')}")
+
+
+def test_a_disabled_account_veeam_lists_in_another_case_is_counted():
+    users = [user(u) for u in TEAM] + [user("info", enabled=False)]
+    box = VeeamUser(upn("info").upper(), False, None, "veeam.json:info")
+    v = backup_m365_mailboxes(office(entra_users=users, veeam_users=[mailbox(u) for u in TEAM] + [box]))
+    assert (v.status, v.entities) == ("gap", (upn("info"),))
+
+
+@pytest.mark.parametrize("row, state", [
+    (VeeamUser("accounting@firm.example", False, None, "veeam.json:9"), "not backed up"),
+    (VeeamUser("accounting@firm.example", True, None, "veeam.json:9"), "never backed up"),
+    (VeeamUser("accounting@firm.example", True, NOW - timedelta(hours=2), "veeam.json:9"),
+     "last backup 2026-10-01T13:00:00+00:00"),
+    (VeeamUser("accounting@firm.example", True, NOW + timedelta(hours=1), "veeam.json:9"),
+     "backup time after the export time"),
+])
+def test_a_veeam_row_matching_no_account_is_listed_with_its_state_and_changes_nothing(row, state):
+    v = backup_m365_mailboxes(office(veeam_users=[mailbox(u) for u in TEAM] + [row]))
+    assert v.status == "backed"
+    assert v.reason.endswith(f"; Veeam rows matching no account: accounting@firm.example ({state})")
+
+
+def test_unmatched_veeam_rows_are_listed_beside_a_gap_too():
+    rows = [mailbox("ann"), mailbox("bob"), mailbox("cy", backed_up=False),
+            VeeamUser("accounting@firm.example", False, None, "veeam.json:9")]
+    v = backup_m365_mailboxes(office(veeam_users=rows))
+    assert (v.status, v.entities) == ("gap", (upn("cy"),))
+    assert v.reason == (f"{upn('cy')}: mailbox not backed up; Veeam Email matched to userPrincipalName; "
+                        "Veeam rows matching no account: accounting@firm.example (not backed up)")
+
+
+def test_a_veeam_row_for_a_guest_is_not_called_unmatched():
+    users = [user(u) for u in TEAM] + [user("gus", user_type="Guest")]
+    v = backup_m365_mailboxes(office(entra_users=users, veeam_users=[mailbox(u) for u in TEAM + ["gus"]]))
+    assert v.status == "backed"
+    assert "matching no account" not in v.reason
+
+
+@pytest.mark.parametrize("field", ["entra_users", "veeam_users"])
+def test_backup_exports_taken_more_than_24_hours_apart_are_unchecked(field):
+    v = backup_m365_mailboxes(taken(office(), field, 25))
+    assert v.status == "unchecked"
+    assert v.reason.startswith(f"exports taken more than 24 hours apart: {field}.json at 2026-09-30T14:00:00+00:00, ")
+
+
+def test_backup_exports_taken_exactly_24_hours_apart_are_still_checked():
+    assert backup_m365_mailboxes(taken(office(), "entra_users", 24)).status == "backed"

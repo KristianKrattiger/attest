@@ -2,7 +2,8 @@ import pytest
 
 from attest.readers import entra_role_assignments
 from attest.rules.mfa import mfa_admins, mfa_all_users, mfa_email, mfa_remote_access
-from builders import EXCHANGE_ADMIN, GLOBAL_ADMIN, defaults, evidence, policy, registration, role, upn, user
+from builders import (
+    EXCHANGE_ADMIN, GLOBAL_ADMIN, defaults, evidence, policy, registration, role, taken, upn, user)
 
 TEAM = ["ann", "bob", "cy"]
 
@@ -334,3 +335,47 @@ def test_an_assignment_with_only_an_app_scope_of_slash_does_not_target_a_role_po
     v = mfa_admins(admins(entra_users=[user(guid)], entra_registration=[registration(guid)],
                           entra_role_assignments=list(entra_role_assignments.read(path))))
     assert (v.status, v.entities) == ("gap", (upn(guid),))
+
+
+# Every export a rule reads must be taken within 24 hours of the others (decision 4, 2026-10-05).
+
+@pytest.mark.parametrize("rule, field", [
+    (mfa_all_users, "entra_users"), (mfa_all_users, "entra_registration"), (mfa_all_users, "entra_ca_policies"),
+    (mfa_all_users, "entra_security_defaults"), (mfa_email, "entra_users"),
+    (mfa_admins, "entra_role_assignments"), (mfa_admins, "entra_users"), (mfa_admins, "entra_registration"),
+])
+def test_mfa_exports_taken_more_than_24_hours_apart_are_unchecked(rule, field):
+    v = rule(taken(admins(), field, 25))
+    assert v.status == "unchecked"
+    assert v.reason.startswith(f"exports taken more than 24 hours apart: {field}.json at 2026-09-30T14:00:00+00:00, ")
+    assert v.reason.endswith(" at 2026-10-01T15:00:00+00:00")
+
+
+def test_an_older_export_also_counts_when_it_is_the_later_one():
+    v = mfa_all_users(taken(team(), "entra_users", -25))
+    assert v.reason == ("exports taken more than 24 hours apart: entra_registration.json at 2026-10-01T15:00:00+00:00, "
+                        "entra_users.json at 2026-10-02T16:00:00+00:00")
+
+
+@pytest.mark.parametrize("rule", [mfa_all_users, mfa_email, mfa_admins])
+def test_mfa_exports_taken_exactly_24_hours_apart_are_still_checked(rule):
+    assert rule(taken(admins(entra_ca_policies=[policy(), policy("Admins MFA", include_users=(),
+                                                                 include_roles=(GLOBAL_ADMIN, EXCHANGE_ADMIN))]),
+                      "entra_users", 24)).status == "backed"
+
+
+def test_a_conditional_access_export_security_defaults_make_unread_does_not_count():
+    v = mfa_all_users(taken(team(entra_security_defaults=[defaults(True)]), "entra_ca_policies", 25))
+    assert v.status == "backed"
+
+
+def test_the_no_enforcement_gap_waits_for_the_export_ages():
+    v = mfa_all_users(taken(team(entra_ca_policies=[policy(state="disabled")]), "entra_ca_policies", 25))
+    assert v.status == "unchecked"
+
+
+@pytest.mark.parametrize("excluded, status", [((), "backed"), ((GLOBAL_ADMIN,), "unchecked")])
+def test_role_assignments_count_for_all_users_only_when_an_exclusion_reads_them(excluded, status):
+    v = mfa_all_users(taken(team(entra_ca_policies=[policy(exclude_roles=excluded)], entra_role_assignments=[]),
+                            "entra_role_assignments", 25))
+    assert v.status == status

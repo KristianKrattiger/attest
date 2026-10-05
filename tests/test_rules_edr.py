@@ -4,7 +4,7 @@ import pytest
 
 from attest.rules import edr
 from attest.rules.edr import edr_alert_monitoring, edr_all_endpoints
-from builders import NOW, device, evidence, machine
+from builders import NOW, device, evidence, machine, taken
 
 
 def fleet(n=3, **overrides):
@@ -227,3 +227,71 @@ def test_onboarding_and_health_are_compared_without_regard_to_case():
 def test_alert_monitoring_is_always_unchecked():
     v = edr_alert_monitoring(fleet())
     assert (v.status, v.reason) == ("unchecked", "no export in v1 shows that alerts are monitored")
+
+
+# Defender machines no Intune device could be (decision 3, 2026-10-05): one that is onboardable, seen recently and not
+# healthy is a gap; one seen long ago or never is listed with when it was last seen and changes nothing.
+
+SERVER = "srv-01.firm.example"
+
+
+def with_server(**state):
+    return fleet(defender_machines=[machine(1), machine(2), machine(3), machine(9, name=SERVER, aad=False, **state)])
+
+
+@pytest.mark.parametrize("state, problems", [
+    (dict(health="Inactive"), "health Inactive"),
+    (dict(onboarding="CanBeOnboarded"), "onboarding status CanBeOnboarded"),
+    (dict(onboarding="CanBeOnboarded", health="Inactive", last_seen=NOW - timedelta(days=7)),
+     "onboarding status CanBeOnboarded, health Inactive"),
+])
+def test_a_recent_unhealthy_defender_only_machine_is_a_gap(state, problems):
+    v = edr_all_endpoints(with_server(**state))
+    assert (v.status, v.entities) == ("gap", (SERVER,))
+    assert v.reason.startswith(f"in Defender but not Intune and not healthy: {SERVER}: {problems}; ")
+    assert v.cited == ("mde.json:9",)
+    assert v.population == "3 devices from intune_devices.json"
+    assert "outside the population" not in v.reason
+
+
+def test_an_unhealthy_defender_only_machine_is_listed_after_the_population_s_own_gaps():
+    v = edr_all_endpoints(fleet(defender_machines=[machine(1), machine(2),
+                                                   machine(9, name=SERVER, aad=False, health="Inactive")]))
+    assert (v.status, v.entities) == ("gap", ("LT-03", SERVER))
+    assert v.reason.startswith(f"LT-03: not in Defender; in Defender but not Intune and not healthy: {SERVER}: ")
+
+
+@pytest.mark.parametrize("onboarding", ["Unsupported", "UNSUPPORTED"])
+def test_an_unsupported_defender_only_machine_is_no_gap(onboarding):
+    v = edr_all_endpoints(with_server(onboarding=onboarding, health="Inactive"))
+    assert v.status == "backed"
+    assert v.reason.endswith(f"; in Defender but not Intune (outside the population): "
+                             f"{SERVER} (onboarding status {onboarding}, health Inactive)")
+
+
+@pytest.mark.parametrize("state, listed", [
+    (dict(health="Inactive", last_seen=NOW - timedelta(days=30)), "health Inactive, last seen 2026-09-01"),
+    (dict(onboarding="CanBeOnboarded", last_seen=None), "onboarding status CanBeOnboarded, never seen"),
+    (dict(last_seen=NOW - timedelta(days=30)), "last seen 2026-09-01"),
+    # a lastSeen after the export cannot be believed: the machine is not shown recent, so it is listed, not a gap
+    (dict(health="Inactive", last_seen=NOW + timedelta(hours=1)), "health Inactive, last seen after the export time"),
+])
+def test_a_defender_only_machine_not_seen_recently_is_listed_with_when_and_changes_nothing(state, listed):
+    v = edr_all_endpoints(with_server(**state))
+    assert v.status == "backed"
+    assert v.reason.endswith(f"; in Defender but not Intune (outside the population): {SERVER} ({listed})")
+
+
+# Every export a rule reads must be taken within 24 hours of the others (decision 4, 2026-10-05).
+
+@pytest.mark.parametrize("field", ["intune_devices", "defender_machines"])
+def test_edr_exports_taken_more_than_24_hours_apart_are_unchecked(field):
+    v = edr_all_endpoints(taken(fleet(), field, 25))
+    other = "defender_machines" if field == "intune_devices" else "intune_devices"
+    assert v.status == "unchecked"
+    assert v.reason == (f"exports taken more than 24 hours apart: {field}.json at 2026-09-30T14:00:00+00:00, "
+                        f"{other}.json at 2026-10-01T15:00:00+00:00")
+
+
+def test_edr_exports_taken_exactly_24_hours_apart_are_still_checked():
+    assert edr_all_endpoints(taken(fleet(), "intune_devices", 24)).status == "backed"

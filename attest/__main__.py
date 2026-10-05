@@ -8,7 +8,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from attest.compare import check
+from attest.compare import run
 from attest.model import AttestError
 from attest.report import TITLE, one_line, render
 
@@ -23,7 +23,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     name = args.firm.resolve().name
     try:
-        text = render(name, check(args.firm))
+        results, evidence = run(args.firm)
+        text = render(name, results, evidence)
     except AttestError as e:
         _write_stub(args.firm, name, str(e))
         _emit(f"attest: {e}\n", sys.stderr)

@@ -2,13 +2,15 @@ import io
 import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 import attest.__main__ as cli
 from attest.__main__ import main
-from attest.compare import check
-from attest.model import Tag, Verdict
+from attest.compare import check, run
+from attest.evidence import Evidence
+from attest.model import Export, Tag, Verdict
 from attest.report import attestations, combined_status, render
 
 ANN = "a0000000-0000-4000-8000-000000000001"
@@ -276,7 +278,7 @@ def test_check_dot_names_the_folder_it_is_run_in(firm, monkeypatch, capsys):
 def test_an_unexpected_error_replaces_an_earlier_report_and_is_re_raised(firm, monkeypatch, capsys):
     assert main(["check", str(firm)]) == 0
     assert "## w1: BACKED" in (firm / "report.md").read_text(encoding="utf-8")
-    monkeypatch.setattr(cli, "check", boom)
+    monkeypatch.setattr(cli, "run", boom)
     with pytest.raises(RuntimeError, match="boom"):
         main(["check", str(firm)])
     report = (firm / "report.md").read_bytes()
@@ -288,7 +290,7 @@ def test_an_unexpected_error_replaces_an_earlier_report_and_is_re_raised(firm, m
 def test_a_verdict_render_refuses_leaves_a_stub_not_an_earlier_report(firm, monkeypatch):
     assert main(["check", str(firm)]) == 0
     tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
-    monkeypatch.setattr(cli, "check", lambda path: [(tag, Verdict("backed", "r"))])
+    monkeypatch.setattr(cli, "run", lambda path: ([(tag, Verdict("backed", "r"))], None))
     with pytest.raises(ValueError, match="population"):
         main(["check", str(firm)])
     assert (firm / "report.md").read_text(encoding="utf-8") == (
@@ -299,7 +301,7 @@ def test_a_verdict_render_refuses_leaves_a_stub_not_an_earlier_report(firm, monk
 def test_an_unexpected_error_stays_the_error_when_the_stub_cannot_be_written(firm, monkeypatch, capsys):
     assert main(["check", str(firm)]) == 0
     monkeypatch.setattr(os, "replace", disk_full)
-    monkeypatch.setattr(cli, "check", boom)
+    monkeypatch.setattr(cli, "run", boom)
     capsys.readouterr()
     with pytest.raises(RuntimeError, match="boom"):
         main(["check", str(firm)])
@@ -307,7 +309,7 @@ def test_an_unexpected_error_stays_the_error_when_the_stub_cannot_be_written(fir
 
 
 def test_an_unexpected_error_with_no_firm_folder_writes_nothing(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "check", boom)
+    monkeypatch.setattr(cli, "run", boom)
     with pytest.raises(RuntimeError, match="boom"):
         main(["check", str(tmp_path / "nope")])
     assert not (tmp_path / "nope").exists()
@@ -335,7 +337,7 @@ def test_a_failed_run_in_a_firm_leaves_an_unrelated_report_alone(firm):
 
 def test_an_unexpected_error_leaves_an_unrelated_report_alone(firm, monkeypatch):
     (firm / "report.md").write_text(UNRELATED, encoding="utf-8")
-    monkeypatch.setattr(cli, "check", boom)
+    monkeypatch.setattr(cli, "run", boom)
     with pytest.raises(RuntimeError, match="boom"):
         main(["check", str(firm)])
     assert (firm / "report.md").read_text(encoding="utf-8") == UNRELATED
@@ -358,7 +360,7 @@ def test_a_report_that_is_a_folder_is_left_alone_on_failure(firm):
 
 
 def test_a_firm_with_no_report_yet_gets_a_stub_on_an_unexpected_error(firm, monkeypatch):
-    monkeypatch.setattr(cli, "check", boom)
+    monkeypatch.setattr(cli, "run", boom)
     with pytest.raises(RuntimeError):
         main(["check", str(firm)])
     assert (firm / "report.md").read_text(encoding="utf-8") == (
@@ -453,3 +455,46 @@ def test_the_cli_counts_a_quote_with_two_tags_once(firm, capsys):
     out = capsys.readouterr().out
     assert "\nbacked 0, gap 0, unchecked 2\n" in out
     assert headings(out)[1:] == ["## w1, w1b: UNCHECKED", "## w2: UNCHECKED"]
+
+
+# The report lists the exports it rests on (final review I2).
+
+EXPORTS_TABLE = """Exports:
+
+| reader | file | exported_at (UTC) | rows |
+|---|---|---|---|
+| `entra_users` | `users.json` | 2026-10-01T15:00:00+00:00 | 1 |
+| `entra_registration` | `registration.json` | 2026-10-01T15:00:00+00:00 | 1 |
+| `entra_ca_policies` | `ca.json` | 2026-10-01T15:00:00+00:00 | 1 |
+| `entra_security_defaults` | `sd.json` | 2026-10-01T15:00:00+00:00 | 1 |
+"""
+
+
+def test_the_cli_report_lists_every_manifest_entry_under_the_count_line(firm, capsys):
+    assert main(["check", str(firm)]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("# Attestation check: tiny\n\nbacked 1, gap 0, unchecked 1\n\n" + EXPORTS_TABLE + "\n## w1: ")
+
+
+def test_run_returns_check_s_results_and_the_evidence_they_rest_on(firm):
+    results, evidence = run(firm)
+    assert results == check(firm)
+    assert [(e.file, len(e.items)) for e in (evidence.entra_users, evidence.entra_ca_policies)] == [
+        ("users.json", 1), ("ca.json", 1)]
+
+
+def test_without_evidence_the_report_has_no_exports_table():
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    assert "Exports" not in render("tiny", [(tag, Verdict("unchecked", "r"))])
+
+
+def test_evidence_with_no_exports_says_so():
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    assert "\nExports: none\n" in render("tiny", [(tag, Verdict("unchecked", "r"))], Evidence())
+
+
+def test_a_file_name_cannot_break_the_exports_table_and_the_time_is_shown_in_utc():
+    tag = Tag("w1", "attest/wisp.txt", "All staff use MFA.", "mfa", "all_users")
+    users = Export("a|b\n## x.json", datetime(2026, 10, 1, 10, tzinfo=timezone(timedelta(hours=-5))), ())
+    text = render("tiny", [(tag, Verdict("unchecked", "r"))], Evidence(entra_users=users))
+    assert "\n| `entra_users` | `a\\|b ## x.json` | 2026-10-01T15:00:00+00:00 | 0 |\n" in text
