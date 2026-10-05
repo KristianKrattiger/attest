@@ -1,0 +1,113 @@
+{
+  "@odata.context": "https://api.security.microsoft.com/api/$metadata#Machines",
+  "value": [
+    {
+      "id": "0000000000000000000000000000000000000001",
+      "computerDnsName": "hp-lt-01.harborpine.example",
+      "aadDeviceId": "d0000000-0000-4000-8000-000000000001",
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "0000000000000000000000000000000000000002",
+      "computerDnsName": "hp-lt-02.harborpine.example",
+      "aadDeviceId": "d0000000-0000-4000-8000-000000000002",
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "0000000000000000000000000000000000000003",
+      "computerDnsName": "hp-lt-03.harborpine.example",
+      "aadDeviceId": "d0000000-0000-4000-8000-000000000003",
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "0000000000000000000000000000000000000004",
+      "computerDnsName": "hp-lt-04.harborpine.example",
+      "aadDeviceId": "d0000000-0000-4000-8000-000000000004",
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "0000000000000000000000000000000000000005",
+      "computerDnsName": "hp-lt-05.harborpine.example",
+      "aadDeviceId": "d0000000-0000-4000-8000-000000000005",
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "0000000000000000000000000000000000000006",
+      "computerDnsName": "hp-lt-06.harborpine.example",
+      "aadDeviceId": "d0000000-0000-4000-8000-000000000006",
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "0000000000000000000000000000000000000007",
+      "computerDnsName": "hp-lt-07.harborpine.example",
+      "aadDeviceId": "d0000000-0000-4000-8000-000000000007",
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "0000000000000000000000000000000000000008",
+      "computerDnsName": "hp-lt-08.harborpine.example",
+      "aadDeviceId": "d0000000-0000-4000-8000-000000000008",
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "0000000000000000000000000000000000000009",
+      "computerDnsName": "hp-lt-09.harborpine.example",
+      "aadDeviceId": "d0000000-0000-4000-8000-000000000009",
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "000000000000000000000000000000000000000a",
+      "computerDnsName": "hp-lt-10.harborpine.example",
+      "aadDeviceId": "d0000000-0000-4000-8000-000000000010",
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "000000000000000000000000000000000000000b",
+      "computerDnsName": "hp-lt-11.harborpine.example",
+      "aadDeviceId": null,
+      "osPlatform": "Windows11",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    },
+    {
+      "id": "ffffffffffffffffffffffffffffffffffffffff",
+      "computerDnsName": "hp-fs01.harborpine.example",
+      "aadDeviceId": null,
+      "osPlatform": "WindowsServer2022",
+      "onboardingStatus": "Onboarded",
+      "healthStatus": "Active",
+      "lastSeen": "2026-10-01T09:30:00Z"
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#deviceManagement/managedDevices",
+  "value": [
+    {
+      "id": "e0000000-0000-4000-8000-000000000001",
+      "deviceName": "HP-LT-01",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000001",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "dana.whitfield@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000002",
+      "deviceName": "HP-LT-02",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000002",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "marcus.chen@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000003",
+      "deviceName": "HP-LT-03",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000003",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "priya.nair@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000004",
+      "deviceName": "HP-LT-04",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000004",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "tom.reyes@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000005",
+      "deviceName": "HP-LT-05",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000005",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "elena.kowalski@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000006",
+      "deviceName": "HP-LT-06",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000006",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "george.okafor@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000007",
+      "deviceName": "HP-LT-07",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000007",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "aisha.rahman@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000008",
+      "deviceName": "HP-LT-08",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000008",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "ben.foster@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000009",
+      "deviceName": "HP-LT-09",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000009",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "carmen.diaz@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000010",
+      "deviceName": "HP-LT-10",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000010",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "felix.braun@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000011",
+      "deviceName": "HP-LT-11",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000011",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "hana.sato@harborpine.example"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000012",
+      "deviceName": "HP-LT-12",
+      "azureADDeviceId": "d0000000-0000-4000-8000-000000000012",
+      "operatingSystem": "Windows",
+      "userPrincipalName": "ivan.petrov@harborpine.example"
+    }
+  ]
+}

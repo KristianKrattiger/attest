@@ -1,0 +1,9 @@
+exports:
+  - {file: users.json, reader: entra_users, exported_at: 2026-10-01T15:00:00Z}
+  - {file: registration.json, reader: entra_registration, exported_at: 2026-10-01T15:00:00Z}
+  - {file: ca-policies.json, reader: entra_ca_policies, exported_at: 2026-10-01T15:00:00Z}
+  - {file: security-defaults.json, reader: entra_security_defaults, exported_at: 2026-10-01T15:00:00Z}
+  - {file: role-assignments.json, reader: entra_role_assignments, exported_at: 2026-10-01T15:00:00Z}
+  - {file: intune-devices.json, reader: intune_devices, exported_at: 2026-10-01T15:00:00Z}
+  - {file: defender-machines.json, reader: defender_machines, exported_at: 2026-10-01T15:00:00Z}
+  - {file: veeam-users.json, reader: veeam_users, exported_at: 2026-10-01T15:00:00Z}

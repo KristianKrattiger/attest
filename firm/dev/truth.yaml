@@ -1,0 +1,15 @@
+# Expected verdicts for firm/dev, in tag order (spec: Testing, Dev firm).
+# A gap lists every entity it must cite, and no others.
+verdicts:
+  app-4.1: {status: gap, entities: [dana.whitfield@harborpine.example, ivan.petrov@harborpine.example]}
+  app-4.2: {status: unchecked}
+  app-4.3: {status: backed}
+  app-4.4: {status: gap, entities: [HP-LT-12]}
+  app-4.5: {status: gap, entities: [carmen.diaz@harborpine.example]}
+  app-4.6: {status: unchecked}
+  wisp-mfa-all: {status: gap, entities: [dana.whitfield@harborpine.example, ivan.petrov@harborpine.example]}
+  wisp-mfa-admins: {status: backed}
+  wisp-vpn: {status: unchecked}
+  wisp-edr: {status: gap, entities: [HP-LT-12]}
+  wisp-backup: {status: gap, entities: [carmen.diaz@harborpine.example]}
+  wisp-immutable: {status: unchecked}

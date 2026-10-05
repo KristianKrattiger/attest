@@ -1,0 +1,63 @@
+# Confirmed tags for the dev firm. Answer 4.7 ("No") is a disclosure, not an
+# attestation, so it is not tagged.
+tags:
+  - id: app-4.1
+    doc: attest/application.txt
+    quote: "4.1 Do you require multi-factor authentication (MFA) for all employees to access email? Yes"
+    control: mfa
+    scope: email
+  - id: app-4.2
+    doc: attest/application.txt
+    quote: "4.2 Do you require MFA for all remote access to your network, including VPN and remote desktop? Yes"
+    control: mfa
+    scope: remote_access
+  - id: app-4.3
+    doc: attest/application.txt
+    quote: "4.3 Do you require MFA for all privileged or administrator accounts? Yes"
+    control: mfa
+    scope: admins
+  - id: app-4.4
+    doc: attest/application.txt
+    quote: "4.4 Do you have endpoint detection and response (EDR) deployed on all endpoints? Yes"
+    control: edr
+    scope: all_endpoints
+  - id: app-4.5
+    doc: attest/application.txt
+    quote: "4.5 Do you back up Microsoft 365 email at least daily? Yes"
+    control: backup
+    scope: m365_mailboxes
+  - id: app-4.6
+    doc: attest/application.txt
+    quote: "4.6 Do you keep backups offline or immutable, separate from your network? Yes"
+    control: backup
+    scope: offline_copy
+  - id: wisp-mfa-all
+    doc: attest/wisp.txt
+    quote: "All staff sign in with multi-factor authentication on every account."
+    control: mfa
+    scope: all_users
+  - id: wisp-mfa-admins
+    doc: attest/wisp.txt
+    quote: "Administrator accounts are protected by multi-factor authentication."
+    control: mfa
+    scope: admins
+  - id: wisp-vpn
+    doc: attest/wisp.txt
+    quote: "Remote access to the office network requires a VPN connection with multi-factor authentication."
+    control: mfa
+    scope: remote_access
+  - id: wisp-edr
+    doc: attest/wisp.txt
+    quote: "Every company laptop runs Microsoft Defender for Business, which is monitored for alerts."
+    control: edr
+    scope: all_endpoints
+  - id: wisp-backup
+    doc: attest/wisp.txt
+    quote: "Email and files in Microsoft 365 are backed up every night with Veeam."
+    control: backup
+    scope: m365_mailboxes
+  - id: wisp-immutable
+    doc: attest/wisp.txt
+    quote: "Backups are kept on immutable storage that cannot be altered or deleted."
+    control: backup
+    scope: offline_copy

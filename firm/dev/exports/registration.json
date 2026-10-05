@@ -1,0 +1,167 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#reports/authenticationMethods/userRegistrationDetails",
+  "value": [
+    {
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "userPrincipalName": "dana.whitfield@harborpine.example",
+      "userDisplayName": "Dana Whitfield",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000002",
+      "userPrincipalName": "marcus.chen@harborpine.example",
+      "userDisplayName": "Marcus Chen",
+      "userType": "member",
+      "isAdmin": true,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000003",
+      "userPrincipalName": "priya.nair@harborpine.example",
+      "userDisplayName": "Priya Nair",
+      "userType": "member",
+      "isAdmin": true,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000004",
+      "userPrincipalName": "tom.reyes@harborpine.example",
+      "userDisplayName": "Tom Reyes",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000005",
+      "userPrincipalName": "elena.kowalski@harborpine.example",
+      "userDisplayName": "Elena Kowalski",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000006",
+      "userPrincipalName": "george.okafor@harborpine.example",
+      "userDisplayName": "George Okafor",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000007",
+      "userPrincipalName": "aisha.rahman@harborpine.example",
+      "userDisplayName": "Aisha Rahman",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000008",
+      "userPrincipalName": "ben.foster@harborpine.example",
+      "userDisplayName": "Ben Foster",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000009",
+      "userPrincipalName": "carmen.diaz@harborpine.example",
+      "userDisplayName": "Carmen Diaz",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000010",
+      "userPrincipalName": "felix.braun@harborpine.example",
+      "userDisplayName": "Felix Braun",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000011",
+      "userPrincipalName": "hana.sato@harborpine.example",
+      "userDisplayName": "Hana Sato",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": true,
+      "isMfaCapable": true,
+      "methodsRegistered": [
+        "microsoftAuthenticatorPush"
+      ]
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000012",
+      "userPrincipalName": "ivan.petrov@harborpine.example",
+      "userDisplayName": "Ivan Petrov",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": false,
+      "isMfaCapable": false,
+      "methodsRegistered": []
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000013",
+      "userPrincipalName": "sam.lowe@harborpine.example",
+      "userDisplayName": "Sam Lowe",
+      "userType": "member",
+      "isAdmin": false,
+      "isMfaRegistered": false,
+      "isMfaCapable": false,
+      "methodsRegistered": []
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000014",
+      "userPrincipalName": "audit.partner_auditfirm.example#EXT#@harborpine.example",
+      "userDisplayName": "Audit Partner (guest)",
+      "userType": "guest",
+      "isAdmin": false,
+      "isMfaRegistered": false,
+      "isMfaCapable": false,
+      "methodsRegistered": []
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users(id,userPrincipalName,displayName,accountEnabled,userType)",
+  "value": [
+    {
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "userPrincipalName": "dana.whitfield@harborpine.example",
+      "displayName": "Dana Whitfield",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000002",
+      "userPrincipalName": "marcus.chen@harborpine.example",
+      "displayName": "Marcus Chen",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000003",
+      "userPrincipalName": "priya.nair@harborpine.example",
+      "displayName": "Priya Nair",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000004",
+      "userPrincipalName": "tom.reyes@harborpine.example",
+      "displayName": "Tom Reyes",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000005",
+      "userPrincipalName": "elena.kowalski@harborpine.example",
+      "displayName": "Elena Kowalski",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000006",
+      "userPrincipalName": "george.okafor@harborpine.example",
+      "displayName": "George Okafor",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000007",
+      "userPrincipalName": "aisha.rahman@harborpine.example",
+      "displayName": "Aisha Rahman",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000008",
+      "userPrincipalName": "ben.foster@harborpine.example",
+      "displayName": "Ben Foster",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000009",
+      "userPrincipalName": "carmen.diaz@harborpine.example",
+      "displayName": "Carmen Diaz",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000010",
+      "userPrincipalName": "felix.braun@harborpine.example",
+      "displayName": "Felix Braun",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000011",
+      "userPrincipalName": "hana.sato@harborpine.example",
+      "displayName": "Hana Sato",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000012",
+      "userPrincipalName": "ivan.petrov@harborpine.example",
+      "displayName": "Ivan Petrov",
+      "accountEnabled": true,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000013",
+      "userPrincipalName": "sam.lowe@harborpine.example",
+      "displayName": "Sam Lowe",
+      "accountEnabled": false,
+      "userType": "Member"
+    },
+    {
+      "id": "a0000000-0000-4000-8000-000000000014",
+      "userPrincipalName": "audit.partner_auditfirm.example#EXT#@harborpine.example",
+      "displayName": "Audit Partner (guest)",
+      "accountEnabled": true,
+      "userType": "Guest"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#roleManagement/directory/roleAssignments(principal())",
+  "value": [
+    {
+      "id": "ra-2",
+      "principalId": "a0000000-0000-4000-8000-000000000002",
+      "roleDefinitionId": "62e90394-69f5-4237-9190-012177145e10",
+      "directoryScopeId": "/",
+      "principal": {
+        "@odata.type": "#microsoft.graph.user",
+        "id": "a0000000-0000-4000-8000-000000000002",
+        "userPrincipalName": "marcus.chen@harborpine.example",
+        "displayName": "Marcus Chen"
+      }
+    },
+    {
+      "id": "ra-3",
+      "principalId": "a0000000-0000-4000-8000-000000000003",
+      "roleDefinitionId": "29232cdf-9323-42fd-ade2-1d097af3e4de",
+      "directoryScopeId": "/",
+      "principal": {
+        "@odata.type": "#microsoft.graph.user",
+        "id": "a0000000-0000-4000-8000-000000000003",
+        "userPrincipalName": "priya.nair@harborpine.example",
+        "displayName": "Priya Nair"
+      }
+    }
+  ]
+}

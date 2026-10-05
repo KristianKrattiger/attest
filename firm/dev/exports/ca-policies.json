@@ -1,0 +1,173 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#identity/conditionalAccess/policies",
+  "value": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000001",
+      "displayName": "Require MFA for all users",
+      "state": "enabled",
+      "conditions": {
+        "users": {
+          "includeUsers": [
+            "All"
+          ],
+          "excludeUsers": [
+            "a0000000-0000-4000-8000-000000000001"
+          ],
+          "includeGroups": [],
+          "excludeGroups": [],
+          "includeRoles": [],
+          "excludeRoles": []
+        },
+        "applications": {
+          "includeApplications": [
+            "All"
+          ],
+          "excludeApplications": [],
+          "includeUserActions": []
+        },
+        "clientAppTypes": [
+          "all"
+        ],
+        "locations": null,
+        "platforms": null,
+        "devices": null,
+        "signInRiskLevels": [],
+        "userRiskLevels": [],
+        "servicePrincipalRiskLevels": []
+      },
+      "grantControls": {
+        "operator": "OR",
+        "builtInControls": [
+          "mfa"
+        ],
+        "customAuthenticationFactors": [],
+        "termsOfUse": []
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000002",
+      "displayName": "Require MFA for administrators",
+      "state": "enabled",
+      "conditions": {
+        "users": {
+          "includeUsers": [],
+          "excludeUsers": [],
+          "includeGroups": [],
+          "excludeGroups": [],
+          "includeRoles": [
+            "62e90394-69f5-4237-9190-012177145e10",
+            "29232cdf-9323-42fd-ade2-1d097af3e4de"
+          ],
+          "excludeRoles": []
+        },
+        "applications": {
+          "includeApplications": [
+            "All"
+          ],
+          "excludeApplications": [],
+          "includeUserActions": []
+        },
+        "clientAppTypes": [
+          "all"
+        ],
+        "locations": null,
+        "platforms": null,
+        "devices": null,
+        "signInRiskLevels": [],
+        "userRiskLevels": [],
+        "servicePrincipalRiskLevels": []
+      },
+      "grantControls": {
+        "operator": "OR",
+        "builtInControls": [
+          "mfa"
+        ],
+        "customAuthenticationFactors": [],
+        "termsOfUse": []
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000003",
+      "displayName": "MFA everywhere (pilot)",
+      "state": "enabledForReportingButNotEnforced",
+      "conditions": {
+        "users": {
+          "includeUsers": [
+            "All"
+          ],
+          "excludeUsers": [],
+          "includeGroups": [],
+          "excludeGroups": [],
+          "includeRoles": [],
+          "excludeRoles": []
+        },
+        "applications": {
+          "includeApplications": [
+            "All"
+          ],
+          "excludeApplications": [],
+          "includeUserActions": []
+        },
+        "clientAppTypes": [
+          "all"
+        ],
+        "locations": null,
+        "platforms": null,
+        "devices": null,
+        "signInRiskLevels": [],
+        "userRiskLevels": [],
+        "servicePrincipalRiskLevels": []
+      },
+      "grantControls": {
+        "operator": "OR",
+        "builtInControls": [
+          "mfa"
+        ],
+        "customAuthenticationFactors": [],
+        "termsOfUse": []
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000004",
+      "displayName": "Block legacy authentication",
+      "state": "enabled",
+      "conditions": {
+        "users": {
+          "includeUsers": [
+            "All"
+          ],
+          "excludeUsers": [],
+          "includeGroups": [],
+          "excludeGroups": [],
+          "includeRoles": [],
+          "excludeRoles": []
+        },
+        "applications": {
+          "includeApplications": [
+            "All"
+          ],
+          "excludeApplications": [],
+          "includeUserActions": []
+        },
+        "clientAppTypes": [
+          "exchangeActiveSync",
+          "other"
+        ],
+        "locations": null,
+        "platforms": null,
+        "devices": null,
+        "signInRiskLevels": [],
+        "userRiskLevels": [],
+        "servicePrincipalRiskLevels": []
+      },
+      "grantControls": {
+        "operator": "OR",
+        "builtInControls": [
+          "block"
+        ],
+        "customAuthenticationFactors": [],
+        "termsOfUse": []
+      }
+    }
+  ]
+}

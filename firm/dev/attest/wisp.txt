@@ -1,0 +1,13 @@
+Written Information Security Plan, Harbor & Pine CPA
+
+Access control
+All staff sign in with multi-factor authentication on every account.
+Administrator accounts are protected by multi-factor authentication.
+Remote access to the office network requires a VPN connection with multi-factor authentication.
+
+Endpoint protection
+Every company laptop runs Microsoft Defender for Business, which is monitored for alerts.
+
+Backup and recovery
+Email and files in Microsoft 365 are backed up every night with Veeam.
+Backups are kept on immutable storage that cannot be altered or deleted.

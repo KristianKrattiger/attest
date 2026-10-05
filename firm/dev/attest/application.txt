@@ -1,0 +1,10 @@
+Cyber Liability Insurance Application (renewal), Harbor & Pine CPA
+Section 4: Security controls
+
+4.1 Do you require multi-factor authentication (MFA) for all employees to access email? Yes
+4.2 Do you require MFA for all remote access to your network, including VPN and remote desktop? Yes
+4.3 Do you require MFA for all privileged or administrator accounts? Yes
+4.4 Do you have endpoint detection and response (EDR) deployed on all endpoints? Yes
+4.5 Do you back up Microsoft 365 email at least daily? Yes
+4.6 Do you keep backups offline or immutable, separate from your network? Yes
+4.7 Have you tested restoring from backup in the last 12 months? No
