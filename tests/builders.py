@@ -41,7 +41,7 @@ def policy(name="All users MFA", state="enabled", include_users=("All",), exclud
 
 
 def defaults(enabled):
-    return SecurityDefaults(enabled, "security-defaults.json:1")
+    return SecurityDefaults(enabled=enabled, cite="security-defaults.json:1")
 
 
 def role(uid, role_id=GLOBAL_ADMIN, kind="user", scope="/"):
@@ -49,17 +49,19 @@ def role(uid, role_id=GLOBAL_ADMIN, kind="user", scope="/"):
                           role_id=role_id, scope=scope, cite=f"roles.json:{uid}")
 
 
-def device(n, aad=True):
-    return IntuneDevice(f"i{n}", f"LT-{n:02d}", f"d-{n}" if aad else None, "Windows", f"intune.json:{n}")
+def device(n, aad=True, name=None):
+    return IntuneDevice(id=f"i{n}", name=name or f"LT-{n:02d}", aad_device_id=f"d-{n}" if aad else None,
+                        os="Windows", cite=f"intune.json:{n}")
 
 
 def machine(n, name=None, aad=True, onboarding="Onboarded", health="Active", last_seen=NOW):
-    return Machine(f"m{n}", name or f"lt-{n:02d}.firm.example", f"d-{n}" if aad else None,
-                   onboarding, health, last_seen, f"mde.json:{n}")
+    return Machine(id=f"m{n}", name=name or f"lt-{n:02d}.firm.example", aad_device_id=f"d-{n}" if aad else None,
+                   onboarding=onboarding, health=health, last_seen=last_seen, cite=f"mde.json:{n}")
 
 
 def mailbox(uid, backed_up=True, when=NOW):
-    return VeeamUser(upn(uid), backed_up, when if backed_up else None, f"veeam.json:{uid}")
+    return VeeamUser(email=upn(uid), mailbox_backed_up=backed_up,
+                     mailbox_backed_up_time=when if backed_up else None, cite=f"veeam.json:{uid}")
 
 
 def export(items, file="export.json", at=NOW):

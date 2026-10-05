@@ -77,3 +77,22 @@ def test_adversarial_defender_all_healthy_but_intune_has_one_more_device_is_not_
 def test_missing_evidence_is_unchecked(overrides, why):
     v = edr_all_endpoints(fleet(**overrides))
     assert (v.status, why in v.reason) == ("unchecked", True)
+
+
+def test_two_intune_devices_with_one_name_cannot_both_be_the_one_defender_machine():
+    v = edr_all_endpoints(fleet(
+        intune_devices=[device(1, aad=False), device(2, aad=False, name="LT-01")],
+        defender_machines=[machine(1, aad=False)]))
+    assert (v.status, v.entities) == ("gap", ("LT-01", "LT-01"))
+    assert v.reason.count("LT-01: ambiguous name match") == 2
+    assert v.cited == ("intune.json:1", "intune.json:2")
+
+
+def test_a_defender_machine_matched_by_entra_id_is_not_matched_again_by_name():
+    v = edr_all_endpoints(fleet(
+        intune_devices=[device(1), device(2, aad=False, name="LT-01")],
+        defender_machines=[machine(1)]))
+    assert (v.status, v.entities) == ("gap", ("LT-01",))
+    assert v.reason.startswith("LT-01: not in Defender")
+    assert v.cited == ("intune.json:2",)
+    assert "matched by Entra device ID 1" in v.reason
