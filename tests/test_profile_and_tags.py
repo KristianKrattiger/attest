@@ -241,7 +241,7 @@ def test_an_absolute_document_path_outside_the_firm_folder_is_refused(tmp_path):
 
 def test_a_roundabout_path_that_stays_inside_the_firm_folder_is_refused_naming_the_canonical_form(tmp_path):
     firm = _firm(tmp_path, _tags(_entry(doc="attest/../attest/wisp.txt")))
-    message = "tags.yaml: tag 'w1' names 'attest/../attest/wisp.txt'; write it as 'attest/wisp.txt'"
+    message = "tags.yaml: tag 'w1': document attest/../attest/wisp.txt must be written as 'attest/wisp.txt'"
     with pytest.raises(AttestError, match=re.escape(message)):
         load_tags(firm, PROFILE)
 
@@ -566,7 +566,7 @@ WINDOWS_ONLY = pytest.mark.skipif(sys.platform != "win32", reason="a Windows pat
 def test_a_document_written_other_than_its_canonical_form_is_refused(tmp_path, doc, written):
     second = _entry(id="w2", quote="Every laptop runs EDR.", control="edr", scope="all_endpoints", doc=doc)
     firm = _firm(tmp_path, _tags(_entry(), second))
-    message = f"tags.yaml: tag 'w2' names {written!r}; write it as 'attest/wisp.txt'"
+    message = f"tags.yaml: tag 'w2': document {written} must be written as 'attest/wisp.txt'"
     with pytest.raises(AttestError, match=re.escape(message)):
         load_tags(firm, PROFILE)
 
@@ -575,3 +575,24 @@ def test_a_document_written_in_its_canonical_form_loads(tmp_path):
     second = _entry(id="w2", quote="Every laptop runs EDR.", control="edr", scope="all_endpoints")
     firm = _firm(tmp_path, _tags(_entry(), second))
     assert [(t.id, t.doc) for t in load_tags(firm, PROFILE)] == [("w1", "attest/wisp.txt"), ("w2", "attest/wisp.txt")]
+
+
+def test_a_second_name_for_the_same_file_is_refused(tmp_path):
+    # Fourth review N1: a hard link (or, off Windows, a letter case a case-insensitive filesystem does not resolve)
+    # is canonical as written, yet names the file another tag names, and would split its passage the same way.
+    second = _entry(id="w2", quote="Every laptop runs EDR.", control="edr", scope="all_endpoints", doc="attest/wisp2.txt")
+    firm = _firm(tmp_path, _tags(_entry(), second))
+    try:
+        os.link(firm / "attest" / "wisp.txt", firm / "attest" / "wisp2.txt")
+    except OSError as e:
+        pytest.skip(f"this filesystem cannot hard-link ({e})")
+    message = "tags.yaml: tag 'w2': document attest/wisp2.txt is the same file as attest/wisp.txt"
+    with pytest.raises(AttestError, match=re.escape(message)):
+        load_tags(firm, PROFILE)
+
+
+def test_a_copy_of_a_document_under_another_name_is_a_separate_document(tmp_path):
+    second = _entry(id="w2", quote="Every laptop runs EDR.", control="edr", scope="all_endpoints", doc="attest/wisp2.txt")
+    firm = _firm(tmp_path, _tags(_entry(), second))
+    (firm / "attest" / "wisp2.txt").write_text(WISP, encoding="utf-8")
+    assert [(t.id, t.doc) for t in load_tags(firm, PROFILE)] == [("w1", "attest/wisp.txt"), ("w2", "attest/wisp2.txt")]

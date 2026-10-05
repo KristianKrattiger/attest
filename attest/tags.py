@@ -22,6 +22,7 @@ def load_tags(firm: Path, profile: Profile) -> list[Tag]:
     """Every tag in firm/tags.yaml, refusing one whose quote is under three words or not once in its document."""
     firm = Path(firm)
     documents: dict[str, str] = {}
+    files: dict[tuple[int, int], str] = {}
     seen: set[str] = set()
     tags: list[Tag] = []
     for i, entry in enumerate(_tag_entries(firm / "tags.yaml"), start=1):
@@ -34,6 +35,7 @@ def load_tags(firm: Path, profile: Profile) -> list[Tag]:
         _check_in_profile(tag, profile)
         if tag.doc not in documents:
             documents[tag.doc] = _document_text(firm, tag)
+            _refuse_a_second_name(firm, tag, files)
         found = _occurrences(documents[tag.doc], tag.quote)
         if found == 0:
             raise AttestError(f"tags.yaml: tag {tag.id!r}: quote is not an exact substring of {tag.doc}")
@@ -136,7 +138,7 @@ def _document_text(firm: Path, tag: Tag) -> str:
         raise AttestError(f"{where} is not under {ATTEST_DIR}/")
     canonical = resolved.relative_to(firm.resolve()).as_posix()
     if tag.doc != canonical:
-        raise AttestError(f"tags.yaml: tag {tag.id!r} names {tag.doc!r}; write it as {canonical!r}")
+        raise AttestError(f"{where} must be written as {canonical!r}")
     try:
         if not path.exists():
             raise AttestError(f"{where} not found")
@@ -149,3 +151,21 @@ def _document_text(firm: Path, tag: Tag) -> str:
         raise AttestError(f"{where} is not UTF-8 text ({e.reason})") from e
     except OSError as e:
         raise AttestError(f"{where} could not be read ({e.strerror or e})") from e
+
+
+def _refuse_a_second_name(firm: Path, tag: Tag, files: dict[tuple[int, int], str]) -> None:
+    """Refuse a document that is the same file as one another tag already names under another name.
+
+    A hard link, or a letter case that a case-insensitive filesystem other than Windows' does not resolve, passes as
+    canonical yet names one file twice, and would split one passage into two attestations just as two spellings did.
+    A filesystem that reports no file identity (st_ino 0) has nothing to compare and cannot hard-link."""
+    where = f"tags.yaml: tag {tag.id!r}: document {tag.doc}"
+    try:
+        stat = (firm / tag.doc).stat()
+    except OSError as e:
+        raise AttestError(f"{where} could not be read ({e.strerror or e})") from e
+    if stat.st_ino == 0:
+        return
+    first = files.setdefault((stat.st_dev, stat.st_ino), tag.doc)
+    if first != tag.doc:
+        raise AttestError(f"{where} is the same file as {first}")

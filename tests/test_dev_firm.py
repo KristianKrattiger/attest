@@ -235,7 +235,7 @@ def test_a_compound_line_s_second_tag_naming_its_document_another_way_stops_the_
     # line came out BACKED on its own.
     firm = _copy(tmp_path, *HEAL, _redoc({"wisp-backup-files": "attest/./wisp.txt"}))
     assert main(["check", str(firm)]) == 2
-    error = "tags.yaml: tag 'wisp-backup-files' names 'attest/./wisp.txt'; write it as 'attest/wisp.txt'"
+    error = "tags.yaml: tag 'wisp-backup-files': document attest/./wisp.txt must be written as 'attest/wisp.txt'"
     assert f"attest: {error}" in capsys.readouterr().err
     report = (firm / "report.md").read_text(encoding="utf-8")
     assert report == f"# Attestation check: dev\n\nCHECK FAILED: {error}\n"
