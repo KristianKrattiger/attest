@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from attest.readers._json import device_id, load_records, parse_time, require, require_str
+from attest.readers._json import device_id, load_records, parse_time, refuse_duplicates, require, require_str
 
 
 @dataclass(frozen=True)
@@ -46,4 +46,5 @@ def read(path: Path) -> tuple[Machine, ...]:
             last_seen=None if last_seen is None else parse_time(last_seen, file, row, "lastSeen"),
             cite=f"{file}:{row}",
         ))
+    refuse_duplicates((m.id for m in machines), "id", file)
     return tuple(machines)

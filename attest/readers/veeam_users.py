@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from attest.model import AttestError
-from attest.readers._json import load_records, parse_time, require, require_bool, require_str
+from attest.readers._json import load_records, parse_time, refuse_duplicates, require, require_bool, require_str
 
 
 @dataclass(frozen=True)
@@ -55,4 +55,5 @@ def read(path: Path) -> tuple[VeeamUser, ...]:
             mailbox_backed_up_time=when,
             cite=f"{file}:{row}",
         ))
+    refuse_duplicates((u.email for u in users), "Email", file, fold_case=True)
     return tuple(users)

@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from attest.readers._json import load_records, require_bool, require_str
+from attest.readers._json import load_records, refuse_duplicates, require_bool, require_str
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class User:
 
 def read(path: Path) -> tuple[User, ...]:
     file = Path(path).name
-    return tuple(
+    users = tuple(
         User(
             id=require_str(r, "id", file, row),
             upn=require_str(r, "userPrincipalName", file, row),
@@ -33,3 +33,6 @@ def read(path: Path) -> tuple[User, ...]:
         )
         for row, r in enumerate(load_records(path), start=1)
     )
+    refuse_duplicates((u.id for u in users), "id", file)
+    refuse_duplicates((u.upn for u in users), "userPrincipalName", file, fold_case=True)
+    return users

@@ -11,7 +11,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from attest.model import AttestError
 
@@ -76,6 +76,20 @@ def require_bool(record: dict, key: str, file: str, row: int) -> bool:
     if not isinstance(value, bool):
         raise AttestError(f"{file}: row {row} field {key!r} must be true or false, got {value!r}")
     return value
+
+
+def refuse_duplicates(values: Iterable[str], field: str, file: str, fold_case: bool = False) -> None:
+    """Stop the run when two rows share a key; values are the key of each row, in row order.
+
+    Two records for one entity can disagree, and any rule that picked one of
+    them would pick silently. fold_case compares keys without regard to case.
+    """
+    first: dict[str, int] = {}
+    for row, value in enumerate(values, start=1):
+        key = value.lower() if fold_case else value
+        if key in first:
+            raise AttestError(f"{file}: rows {first[key]} and {row} share {field} {value!r}")
+        first[key] = row
 
 
 def device_id(value: Any, file: str, row: int, field: str) -> Optional[str]:

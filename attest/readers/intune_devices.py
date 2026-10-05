@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from attest.readers._json import device_id, load_records, require, require_str
+from attest.readers._json import device_id, load_records, refuse_duplicates, require, require_str
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ class IntuneDevice:
 
 def read(path: Path) -> tuple[IntuneDevice, ...]:
     file = Path(path).name
-    return tuple(
+    devices = tuple(
         IntuneDevice(
             id=require_str(r, "id", file, row),
             name=require_str(r, "deviceName", file, row),
@@ -34,3 +34,5 @@ def read(path: Path) -> tuple[IntuneDevice, ...]:
         )
         for row, r in enumerate(load_records(path), start=1)
     )
+    refuse_duplicates((d.id for d in devices), "id", file)
+    return devices

@@ -284,3 +284,10 @@ def test_null_objects_and_lists_read_as_empty(write_json):
     conditions = {**BASE, "users": None, "applications": None, "locations": None, "platforms": None}
     policy = read(_one_policy(write_json, conditions, None))[0]
     assert (policy.include_users, policy.include_apps, policy.requires_mfa) == ((), (), False)
+
+
+def test_two_policies_sharing_an_id_stop_the_run_naming_both_rows(write_json):
+    row = {"id": "p1", "displayName": "P", "state": "enabled", "conditions": BASE, "grantControls": GOOD_GRANT}
+    path = write_json("ca.json", [row, {**row, "id": "p2"}, {**row, "state": "disabled"}])
+    with pytest.raises(AttestError, match=r"ca\.json: rows 1 and 3 share id 'p1'"):
+        read(path)

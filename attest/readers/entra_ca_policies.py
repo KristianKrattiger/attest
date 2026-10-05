@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from attest.model import AttestError
-from attest.readers._json import load_records, require, require_str
+from attest.readers._json import load_records, refuse_duplicates, require, require_str
 
 # Microsoft's built-in authentication strengths that require MFA:
 # Multifactor authentication, Passwordless MFA, Phishing-resistant MFA.
@@ -278,4 +278,5 @@ def read(path: Path) -> tuple[CaPolicy, ...]:
             cite=f"{file}:{row}",
             exclude_guest_types=_excluded_guest_types(guests, exclude_users, file, row),
         ))
+    refuse_duplicates((p.id for p in policies), "id", file)
     return tuple(policies)

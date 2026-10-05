@@ -97,3 +97,31 @@ def test_a_null_principal_stops_the_run_naming_both_causes(write_json):
     path = write_json("roles.json", [{"principalId": "u1", "roleDefinitionId": "r", "principal": None}])
     with pytest.raises(AttestError, match="a null principal means its account was deleted"):
         entra_role_assignments.read(path)
+
+
+def test_two_users_sharing_an_id_stop_the_run_naming_both_rows(write_json):
+    path = write_json("users.json", [
+        {"id": "u1", "userPrincipalName": "ann@firm.example", "accountEnabled": True, "userType": "Member"},
+        {"id": "u2", "userPrincipalName": "bob@firm.example", "accountEnabled": True, "userType": "Member"},
+        {"id": "u1", "userPrincipalName": "ann2@firm.example", "accountEnabled": False, "userType": "Member"},
+    ])
+    with pytest.raises(AttestError, match=r"users\.json: rows 1 and 3 share id 'u1'"):
+        entra_users.read(path)
+
+
+def test_two_users_sharing_a_user_principal_name_in_another_case_stop_the_run(write_json):
+    path = write_json("users.json", [
+        {"id": "u1", "userPrincipalName": "Ann@firm.example", "accountEnabled": True, "userType": "Member"},
+        {"id": "u2", "userPrincipalName": "ann@FIRM.example", "accountEnabled": False, "userType": "Member"},
+    ])
+    with pytest.raises(AttestError, match=r"users\.json: rows 1 and 2 share userPrincipalName 'ann@FIRM\.example'"):
+        entra_users.read(path)
+
+
+def test_two_registration_rows_sharing_an_id_stop_the_run(write_json):
+    path = write_json("reg.json", [
+        {"id": "u1", "userPrincipalName": "ann@firm.example", "isMfaRegistered": False},
+        {"id": "u1", "userPrincipalName": "ann@firm.example", "isMfaRegistered": True},
+    ])
+    with pytest.raises(AttestError, match=r"reg\.json: rows 1 and 2 share id 'u1'"):
+        entra_registration.read(path)

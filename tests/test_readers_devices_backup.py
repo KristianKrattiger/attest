@@ -178,3 +178,27 @@ def test_a_veeam_row_without_an_email_stops_the_run(write_json):
     path = write_json("veeam.json", [{"IsMailboxBackedUp": False, "MailboxBackedUpTime": None}])
     with pytest.raises(AttestError, match="no field 'Email'"):
         veeam_users.read(path)
+
+
+def test_two_intune_devices_sharing_an_id_stop_the_run(write_json):
+    row = {"id": "i1", "deviceName": "HP-LT-01", "azureADDeviceId": None, "operatingSystem": "Windows"}
+    path = write_json("intune.json", [row, {**row, "deviceName": "HP-LT-02"}])
+    with pytest.raises(AttestError, match=r"intune\.json: rows 1 and 2 share id 'i1'"):
+        intune_devices.read(path)
+
+
+def test_two_defender_machines_sharing_an_id_stop_the_run(write_json):
+    row = {"id": "m1", "computerDnsName": "hp-lt-01.firm.example", "aadDeviceId": None,
+           "onboardingStatus": "Onboarded", "healthStatus": "Active", "lastSeen": None}
+    path = write_json("mde.json", [row, {**row, "healthStatus": "Inactive"}])
+    with pytest.raises(AttestError, match=r"mde\.json: rows 1 and 2 share id 'm1'"):
+        defender_machines.read(path)
+
+
+def test_two_veeam_rows_sharing_an_email_in_another_case_stop_the_run(write_json):
+    path = write_json("veeam.json", [
+        {"Email": "Ann@firm.example", "IsMailboxBackedUp": False, "MailboxBackedUpTime": None},
+        {"Email": "ann@firm.example", "IsMailboxBackedUp": True, "MailboxBackedUpTime": "2026-10-01T02:10:13Z"},
+    ])
+    with pytest.raises(AttestError, match=r"veeam\.json: rows 1 and 2 share Email 'ann@firm\.example'"):
+        veeam_users.read(path)
