@@ -15,11 +15,12 @@ the latest is a gap, because nothing says which record is the device.
 
 A Defender machine no Intune device could be is outside the population, but
 not ignored (decision 3, 2026-10-05): one Defender could onboard (any status
-but Unsupported), seen within STALE_AFTER of the export and not after it, that
-is not onboarded and Active is a gap, because it is an endpoint Defender shows
+but Unsupported), seen within STALE_AFTER of the export or after it, that is
+not onboarded and Active is a gap, because it is an endpoint Defender shows
 unprotected now. One seen earlier, or never, is listed with when it was last
-seen and changes nothing. The Intune and Defender exports must be taken within
-24 hours of each other, or the verdict is unchecked.
+seen and changes nothing, and so is a healthy one seen after the export. The
+Intune and Defender exports must be taken within 24 hours of each other, or
+the verdict is unchecked.
 """
 from __future__ import annotations
 
@@ -134,16 +135,18 @@ def _problems(machine: Machine, exported_at: datetime) -> list[str]:
     return problems
 
 
-def _seen_recently(machine: Machine, exported_at: datetime) -> bool:
-    """Whether the machine was last seen within STALE_AFTER of the export, and not after it."""
-    return machine.last_seen is not None and exported_at - STALE_AFTER <= machine.last_seen <= exported_at
-
-
 def _outside_failure(machine: Machine, exported_at: datetime) -> Optional[str]:
-    """Why a machine outside the population is a gap: seen recently, onboardable, and not healthy; else None."""
-    problems = _problems(machine, exported_at)
-    if problems and _seen_recently(machine, exported_at) and machine.onboarding.lower() != "unsupported":
-        return ", ".join(problems)
+    """Why a machine outside the population is a gap, or None.
+
+    It is a gap when Defender could onboard it (any status but Unsupported), it is not onboarded and Active, and it
+    was last seen within STALE_AFTER of the export or after it: a time after the export cannot show the machine
+    healthy, so it counts as recent, and only onboarding and health decide the gap.
+    """
+    onboarding = machine.onboarding.lower()
+    healthy = onboarding == "onboarded" and machine.health.lower() == "active"
+    recent = machine.last_seen is not None and machine.last_seen >= exported_at - STALE_AFTER
+    if onboarding != "unsupported" and not healthy and recent:
+        return ", ".join(_problems(machine, exported_at))
     return None
 
 
@@ -186,7 +189,7 @@ def edr_all_endpoints(evidence: Evidence) -> Verdict:
         if (why := _outside_failure(m, defender.exported_at)) is not None:
             unhealthy.append((m, why))
         else:
-            problems = _problems(m, defender.exported_at)  # none, or why it is not seen recently, or Unsupported
+            problems = _problems(m, defender.exported_at)  # none, when it was last seen, or Unsupported
             listed.append(m.name + (f" ({', '.join(problems)})" if problems else ""))
     if listed:
         notes += "; in Defender but not Intune (outside the population): " + ", ".join(listed)

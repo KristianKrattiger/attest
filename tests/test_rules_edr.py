@@ -244,6 +244,8 @@ def with_server(**state):
     (dict(onboarding="CanBeOnboarded"), "onboarding status CanBeOnboarded"),
     (dict(onboarding="CanBeOnboarded", health="Inactive", last_seen=NOW - timedelta(days=7)),
      "onboarding status CanBeOnboarded, health Inactive"),
+    # a lastSeen after the export is recent too: only onboarding and health decide the gap (final re-review N2)
+    (dict(health="Inactive", last_seen=NOW + timedelta(hours=1)), "health Inactive, last seen after the export time"),
 ])
 def test_a_recent_unhealthy_defender_only_machine_is_a_gap(state, problems):
     v = edr_all_endpoints(with_server(**state))
@@ -273,8 +275,8 @@ def test_an_unsupported_defender_only_machine_is_no_gap(onboarding):
     (dict(health="Inactive", last_seen=NOW - timedelta(days=30)), "health Inactive, last seen 2026-09-01"),
     (dict(onboarding="CanBeOnboarded", last_seen=None), "onboarding status CanBeOnboarded, never seen"),
     (dict(last_seen=NOW - timedelta(days=30)), "last seen 2026-09-01"),
-    # a lastSeen after the export cannot be believed: the machine is not shown recent, so it is listed, not a gap
-    (dict(health="Inactive", last_seen=NOW + timedelta(hours=1)), "health Inactive, last seen after the export time"),
+    # a healthy machine seen after the export is listed, not a gap: only onboarding and health decide the gap
+    (dict(last_seen=NOW + timedelta(hours=1)), "last seen after the export time"),
 ])
 def test_a_defender_only_machine_not_seen_recently_is_listed_with_when_and_changes_nothing(state, listed):
     v = edr_all_endpoints(with_server(**state))

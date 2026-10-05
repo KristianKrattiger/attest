@@ -454,11 +454,13 @@ sections above, these win. Each line says what the tool does, then why.
 - Two different Entra devices are never paired by name. Why: one name on two
   Entra devices is two machines.
 - A Defender machine no Intune device could be, whose onboarding status is
-  not `Unsupported` (case folded), last seen within 7 days of the export and
-  not after it, and not onboarded and Active, is a gap naming it ("in
-  Defender but not Intune and not healthy"); one seen earlier or never is
-  listed with when it was last seen and changes nothing (decision 3). Why:
-  it is an endpoint Defender shows unprotected now, whatever Intune knows.
+  not `Unsupported` (case folded), last seen within 7 days of the export or
+  after it, and not onboarded and Active, is a gap naming it ("in Defender
+  but not Intune and not healthy"); one seen earlier or never is listed with
+  when it was last seen and changes nothing (decision 3), and so is a healthy
+  one seen after the export, since only onboarding and health decide the gap
+  (final re-review). Why: it is an endpoint Defender shows unprotected now,
+  whatever Intune knows, and a time after the export cannot show it healthy.
 
 **Backup population**
 
