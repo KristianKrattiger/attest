@@ -81,11 +81,20 @@ def test_a_defender_machine_without_the_aad_device_id_field_stops_the_run(write_
         defender_machines.read(path)
 
 
-def test_an_intune_device_without_the_operating_system_field_stops_the_run(write_json):
+def test_an_intune_device_without_the_operating_system_field_reads_as_empty(write_json):
+    # operatingSystem is optional: no rule reads it, so its absence cannot change a verdict.
     path = write_json("intune.json", [
         {"id": "i1", "deviceName": "HP-LT-01", "azureADDeviceId": "d0000000-0000-4000-8000-000000000001"},
     ])
-    with pytest.raises(AttestError, match="no field 'operatingSystem'"):
+    assert intune_devices.read(path)[0].os == ""
+
+
+def test_an_intune_operating_system_that_is_not_a_string_stops_the_run(write_json):
+    path = write_json("intune.json", [
+        {"id": "i1", "deviceName": "HP-LT-01", "azureADDeviceId": None, "operatingSystem": 5},
+    ])
+    message = "intune.json: row 1 field 'operatingSystem' must be a string, got 5"
+    with pytest.raises(AttestError, match=re.escape(message)):
         intune_devices.read(path)
 
 
@@ -226,3 +235,40 @@ def test_two_veeam_rows_for_one_address_one_padded_cannot_decide_by_row_order(wr
     row = 2 if padded_second else 1
     with pytest.raises(AttestError, match=f"veeam.json: row {row} field 'Email' has leading or trailing whitespace"):
         veeam_users.read(path)
+
+
+MACHINE = {"id": "m1", "computerDnsName": "hp-lt-01.firm.example", "aadDeviceId": None,
+           "onboardingStatus": "Onboarded", "healthStatus": "Active", "lastSeen": "2026-10-01T09:30:00Z"}
+
+
+def test_a_defender_last_seen_with_no_utc_offset_stops_the_run(write_json):
+    # Read as UTC, a lastSeen written in local time east of UTC would look more recent than it is.
+    path = write_json("mde.json", [{**MACHINE, "lastSeen": "2026-10-01T09:30:00"}])
+    message = "mde.json: row 1 field 'lastSeen' has no UTC offset: '2026-10-01T09:30:00'"
+    with pytest.raises(AttestError, match=re.escape(message)):
+        defender_machines.read(path)
+
+
+EDGE = "9999-12-31T23:59:59-05:00"  # a valid ISO time whose UTC moment is past the year 9999
+
+
+def test_a_defender_last_seen_beyond_the_utc_range_is_not_a_time(write_json):
+    path = write_json("mde.json", [{**MACHINE, "lastSeen": EDGE}])
+    with pytest.raises(AttestError, match=re.escape(f"mde.json: row 1 field 'lastSeen' is not a time: {EDGE!r}")):
+        defender_machines.read(path)
+
+
+def test_a_veeam_time_beyond_the_utc_range_is_not_a_time(write_json):
+    path = write_json("veeam.json", [{"Email": "ann@firm.example", "IsMailboxBackedUp": True,
+                                      "MailboxBackedUpTime": EDGE}])
+    message = f"veeam.json: row 1 field 'MailboxBackedUpTime' is not a time: {EDGE!r}"
+    with pytest.raises(AttestError, match=re.escape(message)):
+        veeam_users.read(path)
+
+
+def test_an_intune_export_that_is_a_single_object_stops_the_run(write_json):
+    # GET /deviceManagement/managedDevices/{id} returns one device: read as the population, it would shrink it to one.
+    path = write_json("intune.json", {"id": "i1", "deviceName": "HP-LT-01", "azureADDeviceId": None,
+                                      "operatingSystem": "Windows"})
+    with pytest.raises(AttestError, match="intune.json: expected a list of records, got a single object"):
+        intune_devices.read(path)

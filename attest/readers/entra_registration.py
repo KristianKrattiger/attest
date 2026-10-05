@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from attest.readers._json import load_records, refuse_duplicates, require_bool, require_str
+from attest.readers._json import load_records, object_id, refuse_duplicates, require, require_bool, require_str
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ def read(path: Path) -> tuple[Registration, ...]:
     file = Path(path).name
     registrations = tuple(
         Registration(
-            user_id=require_str(r, "id", file, row),
+            user_id=object_id(require(r, "id", file, row), file, row, "id"),
             upn=require_str(r, "userPrincipalName", file, row),
             mfa_registered=require_bool(r, "isMfaRegistered", file, row),
             cite=f"{file}:{row}",

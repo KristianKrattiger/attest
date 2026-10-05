@@ -1,10 +1,13 @@
 import json
+import re
 from datetime import datetime, timezone
 
 import pytest
 
 from attest.model import AttestError
-from attest.readers._json import device_id, load_records, parse_time, require, require_bool, require_str
+from attest.readers._json import (
+    device_id, load_records, object_id, optional_object, optional_strings, optional_text, parse_time, require,
+    require_bool, require_str)
 
 
 def _write(tmp_path, data, encoding="utf-8"):
@@ -75,8 +78,15 @@ def test_parse_time_accepts_iso_powershell_and_yaml_forms(value):
     assert parse_time(value, "f.json", 1, "t") == datetime(2026, 10, 1, 2, 10, 13, tzinfo=timezone.utc)
 
 
-def test_a_naive_time_is_taken_as_utc():
-    assert parse_time("2026-10-01T02:10:13", "f.json", 1, "t").tzinfo == timezone.utc
+@pytest.mark.parametrize("value, shown", [
+    ("2026-10-01T02:10:13", "'2026-10-01T02:10:13'"),
+    ({"value": "2026-10-01T02:10:13", "DisplayHint": 2}, "'2026-10-01T02:10:13'"),
+    (datetime(2026, 10, 1, 2, 10, 13), "datetime.datetime(2026, 10, 1, 2, 10, 13)"),
+])
+def test_a_time_without_a_utc_offset_is_refused(value, shown):
+    # Read as UTC, a local time east of UTC would look fresher than it is.
+    with pytest.raises(AttestError, match=re.escape(f"f.json: row 1 field 't' has no UTC offset: {shown}")):
+        parse_time(value, "f.json", 1, "t")
 
 
 def test_an_unreadable_time_stops_the_run():
@@ -116,3 +126,53 @@ def test_device_id_reads_a_guid_or_not_joined(value, expected):
 def test_device_id_refuses_anything_that_is_not_a_guid_or_null(value):
     with pytest.raises(AttestError, match="f.json: row 2 field 'aadDeviceId' must be a device GUID or null"):
         device_id(value, "f.json", 2, "aadDeviceId")
+
+
+@pytest.mark.parametrize("value", ["9999-12-31T23:59:59-05:00", "0001-01-01T00:00:00+05:00"])
+def test_a_time_whose_utc_moment_is_out_of_range_stops_the_run(value):
+    with pytest.raises(AttestError, match=re.escape(f"f.json: row 1 field 't' is not a time: {value!r}")):
+        parse_time(value, "f.json", 1, "t")
+
+
+def test_parse_time_can_name_the_entry_instead_of_the_row():
+    with pytest.raises(AttestError, match=re.escape("manifest.yaml: entry 3 field 'exported_at' has no UTC offset")):
+        parse_time("2026-10-01T02:10:13", "manifest.yaml", 3, "exported_at", unit="entry")
+
+
+def test_a_single_object_is_refused_where_a_list_of_records_is_required(tmp_path):
+    with pytest.raises(AttestError, match="export.json: expected a list of records, got a single object"):
+        load_records(_write(tmp_path, {"id": "1"}), allow_single=False)
+    assert load_records(_write(tmp_path, [{"id": "1"}]), allow_single=False) == [{"id": "1"}]
+    assert load_records(_write(tmp_path, {"value": [{"id": "1"}]}), allow_single=False) == [{"id": "1"}]
+
+
+GUID = "a0000000-0000-4000-8000-000000000001"
+
+
+@pytest.mark.parametrize("value", [GUID, GUID.upper(), "{" + GUID + "}", "{" + GUID.upper() + "}"])
+def test_object_id_reads_any_spelling_of_a_guid_as_its_canonical_lower_case(value):
+    assert object_id(value, "f.json", 1, "id") == GUID
+
+
+@pytest.mark.parametrize("value", ["u1", "", " " + GUID, GUID + " ", 12, None, [GUID]])
+def test_object_id_refuses_anything_that_is_not_a_guid(value):
+    message = f"f.json: row 2 field 'id' must be an object GUID, got {value!r}"
+    with pytest.raises(AttestError, match=re.escape(message)):
+        object_id(value, "f.json", 2, "id")
+
+
+def test_the_optional_helpers_read_null_as_empty():
+    assert (optional_text(None, "f.json", 1, "x"), optional_strings(None, "f.json", 1, "x"),
+            optional_object(None, "f.json", 1, "x")) == ("", (), {})
+    assert (optional_text("a", "f.json", 1, "x"), optional_strings(["a"], "f.json", 1, "x"),
+            optional_object({"a": 1}, "f.json", 1, "x")) == ("a", ("a",), {"a": 1})
+
+
+@pytest.mark.parametrize("helper, value, kind", [
+    (optional_text, 5, "a string"), (optional_text, ["a"], "a string"),
+    (optional_strings, "a", "a list of strings"), (optional_strings, [1], "a list of strings"),
+    (optional_object, [], "an object"), (optional_object, "a", "an object"),
+])
+def test_the_optional_helpers_refuse_the_wrong_type(helper, value, kind):
+    with pytest.raises(AttestError, match=re.escape(f"f.json: row 4 field 'x' must be {kind}, got {value!r}")):
+        helper(value, "f.json", 4, "x")

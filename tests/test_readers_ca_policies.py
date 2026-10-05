@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from attest.model import AttestError
@@ -8,6 +10,9 @@ ODATA_STRENGTH_CONTEXT = ("https://graph.microsoft.com/v1.0/$metadata#identity/c
                           "policies('p1')/grantControls/authenticationStrength/$entity")
 PASSWORDLESS_STRENGTH = {"id": "00000000-0000-0000-0000-000000000003", "displayName": "Passwordless MFA"}
 PHISHING_RESISTANT_STRENGTH = {"id": "00000000-0000-0000-0000-000000000004", "displayName": "Phishing-resistant MFA"}
+DANA = "a0000000-0000-4000-8000-000000000001"
+TRAVEL = "b0000000-0000-4000-8000-000000000001"
+GLOBAL_ADMIN = "62e90394-69f5-4237-9190-012177145e10"
 
 BASE = {
     "clientAppTypes": ["all"],
@@ -160,14 +165,14 @@ def test_odata_annotations_never_narrow():
 def test_read_builds_a_policy_from_graph_json(write_json):
     path = write_json("ca.json", {"value": [{
         "id": "p1", "displayName": "Require MFA for all users", "state": "enabled",
-        "conditions": {**BASE, "users": {"includeUsers": ["All"], "excludeUsers": ["u9"], "excludeGroups": ["g1"],
-                                         "includeRoles": [], "excludeRoles": ["r1"]}},
+        "conditions": {**BASE, "users": {"includeUsers": ["All"], "excludeUsers": [DANA], "excludeGroups": [TRAVEL],
+                                         "includeRoles": [], "excludeRoles": [GLOBAL_ADMIN]}},
         "grantControls": {"operator": "OR", "builtInControls": ["mfa"]},
     }]})
     assert read(path) == (CaPolicy(
         id="p1", name="Require MFA for all users", state="enabled",
-        include_users=("All",), exclude_users=("u9",), exclude_groups=("g1",),
-        include_roles=(), exclude_roles=("r1",), include_apps=("All",),
+        include_users=("All",), exclude_users=(DANA,), exclude_groups=(TRAVEL,),
+        include_roles=(), exclude_roles=(GLOBAL_ADMIN,), include_apps=("All",),
         narrowing=(), requires_mfa=True, cite="ca.json:1"),)
 
 
@@ -290,4 +295,59 @@ def test_two_policies_sharing_an_id_stop_the_run_naming_both_rows(write_json):
     row = {"id": "p1", "displayName": "P", "state": "enabled", "conditions": BASE, "grantControls": GOOD_GRANT}
     path = write_json("ca.json", [row, {**row, "id": "p2"}, {**row, "state": "disabled"}])
     with pytest.raises(AttestError, match=r"ca\.json: rows 1 and 3 share id 'p1'"):
+        read(path)
+
+
+# Object IDs: Conditional Access names users, groups and roles by GUID. Graph spells a GUID in lower case, but the
+# same object written another way (upper case, braces) must still be the same object, never an ID no account has.
+
+@pytest.mark.parametrize("spelling", [DANA.upper(), "{" + DANA + "}", "{" + DANA.upper() + "}"])
+def test_an_excluded_user_guid_in_any_spelling_is_read_as_the_canonical_guid(write_json, spelling):
+    policy = read(_one_policy(write_json, _users(excludeUsers=[spelling])))[0]
+    assert policy.exclude_users == (DANA,)
+
+
+@pytest.mark.parametrize("field, attribute", [
+    ("excludeGroups", "exclude_groups"), ("includeRoles", "include_roles"), ("excludeRoles", "exclude_roles")])
+def test_group_and_role_guids_in_any_spelling_are_read_canonical(write_json, field, attribute):
+    policy = read(_one_policy(write_json, _users(**{field: [GLOBAL_ADMIN.upper(), "{" + TRAVEL + "}"]})))[0]
+    assert getattr(policy, attribute) == (GLOBAL_ADMIN, TRAVEL)
+
+
+def test_exclude_users_all_stops_the_run(write_json):
+    # Graph has no "exclude everyone" keyword; read as an ID it would match no account and so exclude nobody.
+    path = _one_policy(write_json, _users(excludeUsers=["All"]))
+    with pytest.raises(AttestError, match=re.escape("ca.json: row 1 field 'conditions.users.excludeUsers'")):
+        read(path)
+
+
+@pytest.mark.parametrize("keyword", ["guestsOrExternalUsers", "GUESTSOREXTERNALUSERS", "GuestsOrExternalUsers"])
+def test_the_legacy_guest_exclusion_in_any_case_is_recorded(write_json, keyword):
+    policy = read(_one_policy(write_json, _users(excludeUsers=[keyword])))[0]
+    assert policy.exclude_users == ("GuestsOrExternalUsers",)
+    assert policy.exclude_guest_types == ("GuestsOrExternalUsers",)
+
+
+@pytest.mark.parametrize("written, canonical", [("all", "All"), ("ALL", "All"), ("none", "None"),
+                                               ("guestsorexternalusers", "GuestsOrExternalUsers")])
+def test_include_users_keywords_are_recognised_in_any_case(write_json, written, canonical):
+    policy = read(_one_policy(write_json, {**BASE, "users": {"includeUsers": [written]}}))[0]
+    assert policy.include_users == (canonical,)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("includeUsers", "Everyone"), ("includeUsers", "u1"), ("excludeUsers", "None"), ("excludeUsers", "u9"),
+    ("includeGroups", "All"), ("excludeGroups", "g1"), ("includeRoles", "Global Administrator"),
+    ("excludeRoles", "All"),
+])
+def test_a_user_group_or_role_entry_that_is_neither_a_guid_nor_its_keyword_stops_the_run(write_json, field, value):
+    path = _one_policy(write_json, _users(**{field: [value]}))
+    with pytest.raises(AttestError, match=re.escape(f"ca.json: row 1 field 'conditions.users.{field}' must be")):
+        read(path)
+
+
+def test_a_policy_display_name_that_is_not_a_string_stops_the_run(write_json):
+    path = write_json("ca.json", [{"id": "p1", "displayName": 7, "state": "enabled", "conditions": BASE,
+                                   "grantControls": GOOD_GRANT}])
+    with pytest.raises(AttestError, match=re.escape("ca.json: row 1 field 'displayName' must be a string, got 7")):
         read(path)

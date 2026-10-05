@@ -11,9 +11,10 @@ from attest.compare import check
 from attest.model import Tag, Verdict
 from attest.report import render
 
-USERS = {"value": [{"id": "u1", "userPrincipalName": "ann@firm.example", "displayName": "Ann",
+ANN = "a0000000-0000-4000-8000-000000000001"
+USERS = {"value": [{"id": ANN, "userPrincipalName": "ann@firm.example", "displayName": "Ann",
                     "accountEnabled": True, "userType": "Member"}]}
-REGISTRATION = {"value": [{"id": "u1", "userPrincipalName": "ann@firm.example", "isMfaRegistered": True}]}
+REGISTRATION = {"value": [{"id": ANN, "userPrincipalName": "ann@firm.example", "isMfaRegistered": True}]}
 CA = {"value": [{"id": "p1", "displayName": "All users MFA", "state": "enabled",
                  "conditions": {"users": {"includeUsers": ["All"]},
                                 "applications": {"includeApplications": ["All"]},

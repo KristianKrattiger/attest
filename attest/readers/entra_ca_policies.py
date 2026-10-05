@@ -20,6 +20,14 @@ the policy leaves out are recorded for the rules, including the guest and
 external user exclusion (`exclude_guest_types`). Input of the wrong shape, or
 no client app types at all, stops the run with the file and row named; it is
 never guessed around.
+
+Users, groups and roles are named by object GUID, stored in canonical lower
+case so that another spelling of the same object (upper case, braces) still
+matches it. The user lists also hold Graph's keywords, recognised in any case
+and stored in Graph's spelling: includeUsers "All", "None" and
+"GuestsOrExternalUsers"; excludeUsers only "GuestsOrExternalUsers". Any other
+entry stops the run: kept as written it would match no account, and an
+exclusion that matches nothing excludes nobody.
 """
 from __future__ import annotations
 
@@ -28,7 +36,9 @@ from pathlib import Path
 from typing import Any
 
 from attest.model import AttestError
-from attest.readers._json import load_records, refuse_duplicates, require, require_str
+from attest.readers._json import (
+    load_records, object_id, optional_object, optional_strings, optional_text, refuse_duplicates, require,
+    require_str)
 
 # Microsoft's built-in authentication strengths that require MFA:
 # Multifactor authentication, Passwordless MFA, Phishing-resistant MFA.
@@ -37,6 +47,13 @@ MFA_STRENGTH_IDS = frozenset({
     "00000000-0000-0000-0000-000000000003",
     "00000000-0000-0000-0000-000000000004",
 })
+
+# Each list of users, groups or roles, with the keywords Graph allows in it besides object GUIDs, in Graph's spelling.
+_ID_LISTS = (
+    ("includeUsers", ("All", "None", "GuestsOrExternalUsers")),
+    ("excludeUsers", ("GuestsOrExternalUsers",)),
+    ("includeGroups", ()), ("excludeGroups", ()), ("includeRoles", ()), ("excludeRoles", ()),
+)
 
 # The grant control keys this reader understands. Any other key that carries a
 # value is a way through the grant it cannot judge, so it counts as an alternative.
@@ -180,31 +197,22 @@ def narrowing_conditions(conditions: dict) -> tuple[str, ...]:
     return tuple(found)
 
 
-def _object(value: Any, file: str, row: int, field: str) -> dict:
-    """A JSON object, or {} for null; anything else stops the run."""
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise AttestError(f"{file}: row {row} field {field!r} must be an object, got {value!r}")
-    return value
-
-
-def _strings(value: Any, file: str, row: int, field: str) -> tuple[str, ...]:
-    """A list of strings, or () for null. A bare string is refused, not read as a list of characters."""
-    if value is None:
-        return ()
-    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-        raise AttestError(f"{file}: row {row} field {field!r} must be a list of strings, got {value!r}")
-    return tuple(value)
-
-
-def _text(value: Any, file: str, row: int, field: str) -> str:
-    """A string, or "" for null; anything else stops the run."""
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise AttestError(f"{file}: row {row} field {field!r} must be a string, got {value!r}")
-    return value
+def _object_ids(value: Any, file: str, row: int, field: str, keywords: tuple[str, ...] = ()) -> tuple[str, ...]:
+    """A list of object GUIDs in canonical lower case, or of these keywords in Graph's spelling; () for null."""
+    spelled = {keyword.lower(): keyword for keyword in keywords}
+    ids = []
+    for entry in optional_strings(value, file, row, field):
+        if entry.lower() in spelled:
+            ids.append(spelled[entry.lower()])
+            continue
+        try:
+            ids.append(object_id(entry, file, row, field))
+        except AttestError:
+            if not keywords:
+                raise
+            raise AttestError(f"{file}: row {row} field {field!r} must be an object GUID or one of "
+                              f"{', '.join(keywords)}, got {entry!r}") from None
+    return tuple(ids)
 
 
 def _excluded_guest_types(guests: dict, exclude_users: tuple[str, ...], file: str, row: int) -> tuple[str, ...]:
@@ -212,12 +220,13 @@ def _excluded_guest_types(guests: dict, exclude_users: tuple[str, ...], file: st
 
     Graph writes them as one comma-separated string. An exclusion that is set
     but names no type is recorded as "unknown" rather than as no exclusion. The
-    legacy form, "GuestsOrExternalUsers" among excludeUsers, means all of them.
+    legacy form, "GuestsOrExternalUsers" among excludeUsers (already in Graph's
+    spelling, whatever case the export used), means all of them.
     """
     types: list[str] = []
     if _is_set(guests):
-        named = _text(guests.get("guestOrExternalUserTypes"), file, row,
-                      "conditions.users.excludeGuestsOrExternalUsers.guestOrExternalUserTypes")
+        named = optional_text(guests.get("guestOrExternalUserTypes"), file, row,
+                              "conditions.users.excludeGuestsOrExternalUsers.guestOrExternalUserTypes")
         types = [t.strip() for t in named.split(",") if t.strip()] or ["unknown"]
     if "GuestsOrExternalUsers" in exclude_users:
         types.append("GuestsOrExternalUsers")
@@ -226,10 +235,10 @@ def _excluded_guest_types(guests: dict, exclude_users: tuple[str, ...], file: st
 
 def _grant(value: Any, file: str, row: int) -> dict:
     """The grant controls, checked for the shapes requires_mfa reads."""
-    grant = _object(value, file, row, "grantControls")
-    _text(grant.get("operator"), file, row, "grantControls.operator")
+    grant = optional_object(value, file, row, "grantControls")
+    optional_text(grant.get("operator"), file, row, "grantControls.operator")
     for key in ("builtInControls", "customAuthenticationFactors", "termsOfUse"):
-        _strings(grant.get(key), file, row, f"grantControls.{key}")
+        optional_strings(grant.get(key), file, row, f"grantControls.{key}")
     return grant
 
 
@@ -240,43 +249,40 @@ def read(path: Path) -> tuple[CaPolicy, ...]:
         conditions = require(r, "conditions", file, row)
         if not isinstance(conditions, dict):
             raise AttestError(f"{file}: row {row} field 'conditions' must be an object")
-        users = _object(conditions.get("users"), file, row, "conditions.users")
-        applications = _object(conditions.get("applications"), file, row, "conditions.applications")
-        locations = _object(conditions.get("locations"), file, row, "conditions.locations")
-        platforms = _object(conditions.get("platforms"), file, row, "conditions.platforms")
+        users = optional_object(conditions.get("users"), file, row, "conditions.users")
+        applications = optional_object(conditions.get("applications"), file, row, "conditions.applications")
+        locations = optional_object(conditions.get("locations"), file, row, "conditions.locations")
+        platforms = optional_object(conditions.get("platforms"), file, row, "conditions.platforms")
         for name in ("includeLocations", "excludeLocations"):
-            _strings(locations.get(name), file, row, f"conditions.locations.{name}")
+            optional_strings(locations.get(name), file, row, f"conditions.locations.{name}")
         for name in ("includePlatforms", "excludePlatforms"):
-            _strings(platforms.get(name), file, row, f"conditions.platforms.{name}")
-        client_app_types = _strings(require(conditions, "clientAppTypes", file, row), file, row,
-                                    "conditions.clientAppTypes")
+            optional_strings(platforms.get(name), file, row, f"conditions.platforms.{name}")
+        client_app_types = optional_strings(require(conditions, "clientAppTypes", file, row), file, row,
+                                            "conditions.clientAppTypes")
         if not client_app_types:  # Graph marks it Required: nothing in it is missing evidence, not "all"
             raise AttestError(f"{file}: row {row} field 'clientAppTypes' must name at least one client app type")
-        include_users = _strings(users.get("includeUsers"), file, row, "conditions.users.includeUsers")
-        exclude_users = _strings(users.get("excludeUsers"), file, row, "conditions.users.excludeUsers")
-        exclude_groups = _strings(users.get("excludeGroups"), file, row, "conditions.users.excludeGroups")
-        include_roles = _strings(users.get("includeRoles"), file, row, "conditions.users.includeRoles")
-        exclude_roles = _strings(users.get("excludeRoles"), file, row, "conditions.users.excludeRoles")
-        guests = _object(users.get("excludeGuestsOrExternalUsers"), file, row,
-                         "conditions.users.excludeGuestsOrExternalUsers")
-        include_apps = _strings(applications.get("includeApplications"), file, row,
-                                "conditions.applications.includeApplications")
+        ids = {key: _object_ids(users.get(key), file, row, f"conditions.users.{key}", keywords)
+               for key, keywords in _ID_LISTS}
+        guests = optional_object(users.get("excludeGuestsOrExternalUsers"), file, row,
+                                 "conditions.users.excludeGuestsOrExternalUsers")
+        include_apps = optional_strings(applications.get("includeApplications"), file, row,
+                                        "conditions.applications.includeApplications")
         grant = _grant(require(r, "grantControls", file, row), file, row)
         policy_id = require_str(r, "id", file, row)
         policies.append(CaPolicy(
             id=policy_id,
-            name=r.get("displayName") or policy_id,
+            name=optional_text(r.get("displayName"), file, row, "displayName") or policy_id,
             state=require_str(r, "state", file, row),
-            include_users=include_users,
-            exclude_users=exclude_users,
-            exclude_groups=exclude_groups,
-            include_roles=include_roles,
-            exclude_roles=exclude_roles,
+            include_users=ids["includeUsers"],
+            exclude_users=ids["excludeUsers"],
+            exclude_groups=ids["excludeGroups"],
+            include_roles=ids["includeRoles"],
+            exclude_roles=ids["excludeRoles"],
             include_apps=include_apps,
             narrowing=narrowing_conditions(conditions),
             requires_mfa=requires_mfa(grant),
             cite=f"{file}:{row}",
-            exclude_guest_types=_excluded_guest_types(guests, exclude_users, file, row),
+            exclude_guest_types=_excluded_guest_types(guests, ids["excludeUsers"], file, row),
         ))
     refuse_duplicates((p.id for p in policies), "id", file)
     return tuple(policies)

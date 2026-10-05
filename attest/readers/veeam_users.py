@@ -5,8 +5,8 @@ Veeam's published PowerShell examples, not its reference documentation; the
 documented REST form of this data has no backup timestamps, so it cannot
 prove a daily backup. Check them against the first real export before any
 paid check relies on this reader. A missing field stops the run, and so does a
-backup time with no UTC offset: the reader would take it as UTC, and a server
-east of UTC would then look fresher than it is.
+backup time with no UTC offset (see parse_time): read as UTC, a server east of
+UTC would look fresher than it is.
 """
 from __future__ import annotations
 
@@ -15,9 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from attest.model import AttestError
-from attest.readers._json import (
-    has_no_utc_offset, load_records, parse_time, refuse_duplicates, require, require_address, require_bool)
+from attest.readers._json import load_records, parse_time, refuse_duplicates, require, require_address, require_bool
 
 
 @dataclass(frozen=True)
@@ -29,14 +27,9 @@ class VeeamUser:
 
 
 def _backed_up_time(value: object, file: str, row: int) -> Optional[datetime]:
-    """The backup time as UTC; None for "never backed up". An ISO time with no offset is refused."""
+    """The backup time as UTC; None for "never backed up". A time with no UTC offset is refused."""
     if value in (None, ""):
         return None
-    iso = value["value"] if isinstance(value, dict) and "value" in value else value
-    if has_no_utc_offset(iso):
-        raise AttestError(
-            f"{file}: row {row} field 'MailboxBackedUpTime' has no UTC offset: {iso!r}; "
-            "export it as UTC (see docs/exports.md)")
     return parse_time(value, file, row, "MailboxBackedUpTime")
 
 

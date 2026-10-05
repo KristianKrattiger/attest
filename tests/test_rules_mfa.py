@@ -1,5 +1,6 @@
 import pytest
 
+from attest.readers import entra_role_assignments
 from attest.rules.mfa import mfa_admins, mfa_all_users, mfa_email, mfa_remote_access
 from builders import EXCHANGE_ADMIN, GLOBAL_ADMIN, defaults, evidence, policy, registration, role, upn, user
 
@@ -322,3 +323,14 @@ def test_the_admin_population_lists_the_disabled_accounts_and_service_principals
     assert v.status == "backed"
     assert v.population == ("1 enabled accounts holding admin roles, from entra_role_assignments.json; "
                             f"not counted: disabled {upn('old')}; service principals app-1")
+
+
+def test_an_assignment_with_only_an_app_scope_of_slash_does_not_target_a_role_policy(write_json):
+    # Tenant-wide means directoryScopeId "/"; an appScopeId of "/" is a different namespace, not the directory.
+    guid = "a0000000-0000-4000-8000-000000000001"
+    path = write_json("roles.json", [{"principalId": guid, "roleDefinitionId": GLOBAL_ADMIN, "appScopeId": "/",
+                                      "principal": {"@odata.type": "#microsoft.graph.user",
+                                                    "userPrincipalName": upn(guid)}}])
+    v = mfa_admins(admins(entra_users=[user(guid)], entra_registration=[registration(guid)],
+                          entra_role_assignments=list(entra_role_assignments.read(path))))
+    assert (v.status, v.entities) == ("gap", (upn(guid),))

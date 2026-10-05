@@ -3,7 +3,8 @@
 Fields: https://learn.microsoft.com/en-us/defender-endpoint/api/machine
 The reference table spells the onboarding field `onboardingstatus`; the API's
 JSON uses `onboardingStatus`. Either is accepted. `lastSeen` is the last full
-device report, which a device sends about every 24 hours.
+device report, which a device sends about every 24 hours; like every time, it
+must carry a UTC offset (see parse_time).
 """
 from __future__ import annotations
 

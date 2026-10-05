@@ -8,7 +8,7 @@ from attest.evidence import Evidence, load_evidence
 from attest.model import AttestError
 from attest.readers import READERS
 
-USERS = {"value": [{"id": "u1", "userPrincipalName": "ann@firm.example",
+USERS = {"value": [{"id": "a0000000-0000-4000-8000-000000000001", "userPrincipalName": "ann@firm.example",
                     "accountEnabled": True, "userType": "Member"}]}
 ONE_USERS_EXPORT = ("exports:\n  - file: users.json\n    reader: entra_users\n"
                     "    exported_at: 2026-10-01T15:00:00Z\n")

@@ -9,7 +9,7 @@ from typing import Optional
 from attest._yaml import read_yaml
 from attest.model import AttestError, Export
 from attest.readers import READERS
-from attest.readers._json import has_no_utc_offset, parse_time
+from attest.readers._json import parse_time
 from attest.readers.defender_machines import Machine
 from attest.readers.entra_ca_policies import CaPolicy
 from attest.readers.entra_registration import Registration
@@ -74,13 +74,8 @@ def _checked_entry(entry: object, i: int) -> tuple[str, str, datetime]:
             raise AttestError(f"manifest.yaml: entry {i} field {key!r} must be a non-empty string")
     if entry["reader"] not in READERS:
         raise AttestError(f"manifest.yaml: entry {i} names unknown reader {entry['reader']!r}")
-    if has_no_utc_offset(entry["exported_at"]):  # every staleness window is measured from this time
-        raise AttestError(f"manifest.yaml: entry {i} field 'exported_at' has no UTC offset: {entry['exported_at']!r}")
-    try:
-        exported_at = parse_time(entry["exported_at"], "manifest.yaml", i, "exported_at")
-    except (AttestError, OverflowError) as e:  # OverflowError: a year-9999 time with an offset leaves the UTC range
-        raise AttestError(
-            f"manifest.yaml: entry {i} field 'exported_at' is not a time: {entry['exported_at']!r}") from e
+    # Every staleness window is measured from this time; like every other time, it must carry a UTC offset.
+    exported_at = parse_time(entry["exported_at"], "manifest.yaml", i, "exported_at", unit="entry")
     return entry["file"], entry["reader"], exported_at
 
 
