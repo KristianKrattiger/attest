@@ -48,6 +48,41 @@ def test_a_bad_manifest_stops_the_run(tmp_path, manifest, message):
         load_evidence(exports)
 
 
+@pytest.mark.parametrize("written", [
+    "2026-10-01T15:00:00",  # unquoted: YAML parses it as a naive datetime
+    '"2026-10-01T15:00:00"',  # quoted: a string with no offset
+    '"2026-10-01 15:00:00"',
+    '"2026-10-01"',
+])
+def test_an_export_time_with_no_utc_offset_stops_the_run(tmp_path, written):
+    # Every staleness window is measured from this time; read as UTC, it would let an operator west of UTC
+    # pass backups that are a day or more old.
+    manifest = ONE_USERS_EXPORT.replace("2026-10-01T15:00:00Z", written)
+    exports = _exports(tmp_path, manifest, {"users.json": USERS})
+    with pytest.raises(AttestError, match="manifest.yaml: entry 1 field 'exported_at' has no UTC offset: "):
+        load_evidence(exports)
+
+
+def test_an_offset_less_export_time_is_named_as_written(tmp_path):
+    manifest = ONE_USERS_EXPORT.replace("2026-10-01T15:00:00Z", '"2026-10-01T15:00:00"')
+    exports = _exports(tmp_path, manifest, {"users.json": USERS})
+    with pytest.raises(AttestError, match=re.escape("has no UTC offset: '2026-10-01T15:00:00'")):
+        load_evidence(exports)
+
+
+@pytest.mark.parametrize("written, expected", [
+    ("2026-10-01T10:00:00-05:00", datetime(2026, 10, 1, 15, tzinfo=timezone.utc)),
+    ('"2026-10-01T10:00:00-05:00"', datetime(2026, 10, 1, 15, tzinfo=timezone.utc)),
+    ("2026-10-01T15:00:00+00:00", datetime(2026, 10, 1, 15, tzinfo=timezone.utc)),
+    ('"2026-10-01T15:00:00Z"', datetime(2026, 10, 1, 15, tzinfo=timezone.utc)),
+    ('"2026-10-01T20:30:00+05:30"', datetime(2026, 10, 1, 15, tzinfo=timezone.utc)),
+])
+def test_an_export_time_with_a_utc_offset_is_converted_to_utc(tmp_path, written, expected):
+    manifest = ONE_USERS_EXPORT.replace("2026-10-01T15:00:00Z", written)
+    evidence = load_evidence(_exports(tmp_path, manifest, {"users.json": USERS}))
+    assert evidence.entra_users.exported_at == expected
+
+
 NOT_A_MAPPING = "manifest.yaml: expected a mapping with an 'exports' list"
 
 

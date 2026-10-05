@@ -71,6 +71,19 @@ def require_str(record: dict, key: str, file: str, row: int) -> str:
     return value
 
 
+def require_address(record: dict, key: str, file: str, row: int) -> str:
+    """A required string that is an account address (a UPN or SMTP address), refused when padded with whitespace.
+
+    A real address cannot carry leading or trailing whitespace. Duplicate checks and the rules that match
+    addresses compare them as written (folding case only), so a padded copy of an address would pass as a
+    different account; refusing it here keeps one address one spelling.
+    """
+    value = require_str(record, key, file, row)
+    if value != value.strip():
+        raise AttestError(f"{file}: row {row} field {key!r} has leading or trailing whitespace: {value!r}")
+    return value
+
+
 def require_bool(record: dict, key: str, file: str, row: int) -> bool:
     value = require(record, key, file, row)
     if not isinstance(value, bool):
@@ -108,6 +121,25 @@ def device_id(value: Any, file: str, row: int, field: str) -> Optional[str]:
         if canonical is not None:
             return None if canonical == ZERO_GUID else canonical
     raise AttestError(f"{file}: row {row} field {field!r} must be a device GUID or null, got {value!r}")
+
+
+def has_no_utc_offset(value: Any) -> bool:
+    """Whether value is a time written without a UTC offset: a naive datetime, or an ISO string with none.
+
+    parse_time reads such a time as UTC, which is wrong for any export written in local time, so a caller whose
+    answer depends on the real moment refuses it first. Anything that is not a time, or that carries an offset
+    (or is a "/Date(ms)/", which is UTC), is False here: parse_time names what is not a time.
+    """
+    if isinstance(value, dict) and "value" in value:  # PowerShell 5.1 can wrap a DateTime as {"value": ...}
+        value = value["value"]
+    if isinstance(value, datetime):
+        return value.utcoffset() is None
+    if isinstance(value, str) and not _MS_DATE.match(value.strip()):
+        try:
+            return datetime.fromisoformat(value.strip()).utcoffset() is None
+        except ValueError:
+            return False
+    return False
 
 
 def parse_time(value: Any, file: str, row: int, key: str) -> datetime:

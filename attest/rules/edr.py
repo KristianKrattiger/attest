@@ -110,7 +110,8 @@ def _outside(devices: tuple[IntuneDevice, ...], machines: tuple[Machine, ...]) -
     return [m for m in machines if not any(_can_pair(d, m) for d in devices)]
 
 
-def _problems(machine: Machine, cutoff: datetime) -> list[str]:
+def _problems(machine: Machine, exported_at: datetime) -> list[str]:
+    """What keeps this Defender machine from counting as healthy and recently seen at the time of the export."""
     problems = []
     if machine.onboarding.lower() != "onboarded":
         problems.append(f"onboarding status {machine.onboarding}")
@@ -118,7 +119,9 @@ def _problems(machine: Machine, cutoff: datetime) -> list[str]:
         problems.append(f"health {machine.health}")
     if machine.last_seen is None:
         problems.append("never seen")
-    elif machine.last_seen < cutoff:
+    elif machine.last_seen > exported_at:  # a time from after the export cannot be believed recent
+        problems.append("last seen after the export time")
+    elif machine.last_seen < exported_at - STALE_AFTER:
         problems.append(f"last seen {machine.last_seen.date().isoformat()}")
     return problems
 
@@ -132,7 +135,6 @@ def edr_all_endpoints(evidence: Evidence) -> Verdict:
     if not intune.items:
         return unchecked(f"the population is empty: {intune.file} lists no devices")
     population = f"{len(intune.items)} devices from {intune.file}"
-    cutoff = defender.exported_at - STALE_AFTER
     keys = {"Entra device ID": 0, "device name": 0}
     failing: list[tuple[IntuneDevice, str]] = []
     cited: list[str] = []
@@ -146,7 +148,7 @@ def edr_all_endpoints(evidence: Evidence) -> Verdict:
             cited += [device.cite, *(m.cite for m in tied)]
             continue
         keys[key] += 1
-        problems = _problems(found, cutoff)
+        problems = _problems(found, defender.exported_at)
         if problems:
             failing.append((device, ", ".join(problems)))
             cited += [device.cite, found.cite]
@@ -161,6 +163,6 @@ def edr_all_endpoints(evidence: Evidence) -> Verdict:
     if failing:
         reason = "; ".join(f"{d.name}: {why}" for d, why in failing) + notes
         return Verdict("gap", reason, tuple(d.name for d, _ in failing), tuple(cited), population)
-    reason = (f"all {len(intune.items)} devices onboarded to Defender, Active, and seen within 7 days "
+    reason = (f"all {len(intune.items)} devices onboarded to Defender, Active, and seen within {STALE_AFTER.days} days "
               f"of {defender.exported_at.date().isoformat()}" + notes)
     return Verdict("backed", reason, cited=(intune.file, defender.file), population=population)

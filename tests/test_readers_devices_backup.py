@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -201,4 +202,27 @@ def test_two_veeam_rows_sharing_an_email_in_another_case_stop_the_run(write_json
         {"Email": "ann@firm.example", "IsMailboxBackedUp": True, "MailboxBackedUpTime": "2026-10-01T02:10:13Z"},
     ])
     with pytest.raises(AttestError, match=r"veeam\.json: rows 1 and 2 share Email 'ann@firm\.example'"):
+        veeam_users.read(path)
+
+
+@pytest.mark.parametrize("email", ["cy@firm.example ", " cy@firm.example", "cy@firm.example\n", "\tcy@firm.example"])
+def test_a_veeam_email_with_leading_or_trailing_whitespace_stops_the_run(write_json, email):
+    path = write_json("veeam.json", [
+        {"Email": "ann@firm.example", "IsMailboxBackedUp": True, "MailboxBackedUpTime": "2026-10-01T02:10:13Z"},
+        {"Email": email, "IsMailboxBackedUp": True, "MailboxBackedUpTime": "2026-10-01T02:10:13Z"},
+    ])
+    message = f"veeam.json: row 2 field 'Email' has leading or trailing whitespace: {re.escape(repr(email))}"
+    with pytest.raises(AttestError, match=message):
+        veeam_users.read(path)
+
+
+@pytest.mark.parametrize("padded_second", [True, False])
+def test_two_veeam_rows_for_one_address_one_padded_cannot_decide_by_row_order(write_json, padded_second):
+    # The address "cy@firm.example" twice, once with a trailing space: once the rule matched on the stripped
+    # address the first row decided the verdict. The reader refuses the padded row, whichever comes first.
+    protected = {"Email": "cy@firm.example", "IsMailboxBackedUp": True, "MailboxBackedUpTime": "2026-10-01T02:10:13Z"}
+    unprotected = {"Email": "cy@firm.example ", "IsMailboxBackedUp": False, "MailboxBackedUpTime": None}
+    path = write_json("veeam.json", [protected, unprotected] if padded_second else [unprotected, protected])
+    row = 2 if padded_second else 1
+    with pytest.raises(AttestError, match=f"veeam.json: row {row} field 'Email' has leading or trailing whitespace"):
         veeam_users.read(path)

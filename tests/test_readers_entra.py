@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from attest.model import AttestError
@@ -125,3 +127,25 @@ def test_two_registration_rows_sharing_an_id_stop_the_run(write_json):
     ])
     with pytest.raises(AttestError, match=r"reg\.json: rows 1 and 2 share id 'u1'"):
         entra_registration.read(path)
+
+
+@pytest.mark.parametrize("upn", ["cy@firm.example ", " cy@firm.example", "cy@firm.example\n"])
+def test_a_user_principal_name_with_leading_or_trailing_whitespace_stops_the_run(write_json, upn):
+    path = write_json("users.json", [
+        {"id": "u1", "userPrincipalName": "ann@firm.example", "accountEnabled": True, "userType": "Member"},
+        {"id": "u2", "userPrincipalName": upn, "accountEnabled": True, "userType": "Member"},
+    ])
+    message = f"users.json: row 2 field 'userPrincipalName' has leading or trailing whitespace: {re.escape(repr(upn))}"
+    with pytest.raises(AttestError, match=message):
+        entra_users.read(path)
+
+
+@pytest.mark.parametrize("padded_second", [True, False])
+def test_two_accounts_for_one_address_one_padded_stop_the_run_in_either_order(write_json, padded_second):
+    plain = {"id": "u1", "userPrincipalName": "cy@firm.example", "accountEnabled": False, "userType": "Member"}
+    padded = {"id": "u2", "userPrincipalName": "cy@firm.example ", "accountEnabled": True, "userType": "Member"}
+    path = write_json("users.json", [plain, padded] if padded_second else [padded, plain])
+    row = 2 if padded_second else 1
+    message = f"users.json: row {row} field 'userPrincipalName' has leading or trailing whitespace"
+    with pytest.raises(AttestError, match=message):
+        entra_users.read(path)

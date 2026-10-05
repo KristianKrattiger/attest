@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import pytest
 
+from attest.rules import edr
 from attest.rules.edr import edr_all_endpoints
 from builders import NOW, device, evidence, machine
 
@@ -43,6 +44,24 @@ def test_seen_exactly_seven_days_before_the_export_is_still_recent():
     v = edr_all_endpoints(fleet(defender_machines=[machine(1), machine(2),
                                                    machine(3, last_seen=NOW - timedelta(days=7))]))
     assert v.status == "backed"
+
+
+def test_seen_exactly_at_the_export_time_is_still_recent():
+    v = edr_all_endpoints(fleet(defender_machines=[machine(1), machine(2), machine(3, last_seen=NOW)]))
+    assert v.status == "backed"
+
+
+def test_seen_after_the_export_time_is_a_gap_not_recent():
+    # A lastSeen later than the export it came from cannot be true, so it cannot show a recent check-in.
+    v = edr_all_endpoints(fleet(defender_machines=[machine(1), machine(2),
+                                                   machine(3, last_seen=NOW + timedelta(hours=1))]))
+    assert (v.status, v.entities) == ("gap", ("LT-03",))
+    assert "last seen after the export time" in v.reason
+
+
+def test_the_window_in_the_reason_follows_the_constant(monkeypatch):
+    monkeypatch.setattr(edr, "STALE_AFTER", timedelta(days=3))
+    assert "seen within 3 days of" in edr_all_endpoints(fleet()).reason
 
 
 def test_devices_without_entra_ids_match_by_short_name():

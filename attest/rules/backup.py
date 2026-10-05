@@ -28,12 +28,12 @@ def backup_m365_mailboxes(evidence: Evidence) -> Verdict:
         return unchecked("the population is empty: " + description)
     by_email: dict[str, VeeamUser] = {}
     for row in veeam.items:
-        by_email.setdefault(row.email.strip().lower(), row)
+        by_email.setdefault(row.email.lower(), row)
     cutoff = veeam.exported_at - FRESH_WITHIN
     failing: list[tuple[str, str]] = []
     cited: list[str] = []
     for account in population:
-        row = by_email.get(account.upn.strip().lower())
+        row = by_email.get(account.upn.lower())
         if row is None:
             failing.append((account.upn, "no mailbox in the Veeam export"))
             cited.append(account.cite)
@@ -42,6 +42,8 @@ def backup_m365_mailboxes(evidence: Evidence) -> Verdict:
             why = "mailbox not backed up"
         elif row.mailbox_backed_up_time is None:
             why = "mailbox never backed up"
+        elif row.mailbox_backed_up_time > veeam.exported_at:  # a time from after the export cannot be believed fresh
+            why = "mailbox backup time is after the export time"
         elif row.mailbox_backed_up_time < cutoff:
             why = f"last mailbox backup {row.mailbox_backed_up_time.isoformat()}"
         else:
@@ -51,7 +53,7 @@ def backup_m365_mailboxes(evidence: Evidence) -> Verdict:
     if failing:
         reason = "; ".join(f"{name}: {why}" for name, why in failing) + f"; {MATCHING}"
         return Verdict("gap", reason, tuple(name for name, _ in failing), tuple(cited), description)
-    reason = (f"all {len(population)} mailboxes backed up within 24 hours of "
+    reason = (f"all {len(population)} mailboxes backed up within {FRESH_WITHIN // timedelta(hours=1)} hours of "
               f"{veeam.exported_at.isoformat()}; {MATCHING}")
     return Verdict("backed", reason, cited=(users.file, veeam.file), population=description)
 
