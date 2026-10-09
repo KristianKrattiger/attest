@@ -26,8 +26,9 @@ class Span:
 class Tag:
     """One claim, confirmed by a reviewer: its words, where they are, and what they claim.
 
-    `span` is set when the quote is grounded in its document; it is where the tag is, not what it is, so it takes
-    no part in comparing tags.
+    `span` is set when the quote is grounded in its document, and `source` with it: the original file and the
+    place the quoted lines came from, or that the document is plain text. Both are where the tag is, not what it
+    is, so they take no part in comparing tags.
     """
 
     id: str
@@ -36,6 +37,7 @@ class Tag:
     control: str
     scope: str
     span: Optional[Span] = field(default=None, compare=False)
+    source: Optional[str] = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

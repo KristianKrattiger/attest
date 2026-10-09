@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Optional
 
 from attest._yaml import has_invisible_edge, has_letter_or_digit, read_yaml
 from attest.model import AttestError, Span, Tag
 from attest.profile import Profile
+from attest.reading import PLAIN, Reading, load_reading, location, refusal
 
 FIELDS = ("id", "doc", "quote", "control", "scope")
 ATTEST_DIR = "attest"  # the firm folder's attestation documents (spec: Firm folder and profile)
@@ -22,6 +24,7 @@ def load_tags(firm: Path, profile: Profile) -> list[Tag]:
     """Every tag in firm/tags.yaml, refusing one whose quote is under three words or not once in its document."""
     firm = Path(firm)
     documents: dict[str, str] = {}
+    readings: dict[str, Optional[Reading]] = {}
     files: dict[tuple[int, int], str] = {}
     seen: set[str] = set()
     tags: list[Tag] = []
@@ -35,6 +38,7 @@ def load_tags(firm: Path, profile: Profile) -> list[Tag]:
         _check_in_profile(tag, profile)
         if tag.doc not in documents:
             documents[tag.doc] = _document_text(firm, tag)
+            readings[tag.doc] = load_reading(firm, tag.doc, documents[tag.doc])
             _refuse_a_second_name(firm, tag, files)
         found = _occurrences(documents[tag.doc], tag.quote)
         if found == 0:
@@ -42,7 +46,14 @@ def load_tags(firm: Path, profile: Profile) -> list[Tag]:
         if found > 1:
             raise AttestError(
                 f"tags.yaml: tag {tag.id!r}: quote appears {found} times in {tag.doc}; quote enough to be unique")
-        tags.append(replace(tag, span=_span(documents[tag.doc], tag.quote)))
+        span = _span(documents[tag.doc], tag.quote)
+        reading = readings[tag.doc]
+        if reading is not None:
+            why = refusal(reading, span)
+            if why:
+                raise AttestError(f"tags.yaml: tag {tag.id!r}: {why}; check the passage against {reading.name} "
+                                  "and tag a document a person has confirmed")
+        tags.append(replace(tag, span=span, source=location(reading, span) if reading else PLAIN))
     return tags
 
 
@@ -126,6 +137,8 @@ def _document_text(firm: Path, tag: Tag) -> str:
     own words."""
     path = firm / tag.doc
     where = f"tags.yaml: tag {tag.id!r}: document {tag.doc}"
+    if tag.doc.lower().endswith(".map.json"):
+        raise AttestError(f"{where} is a reading's sidecar, not a document; name the text beside it")
     try:
         resolved = path.resolve()  # on Windows this also gives the on-disk letter case of a file that exists
         inside = resolved.is_relative_to(firm.resolve())

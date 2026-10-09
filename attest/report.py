@@ -150,6 +150,9 @@ def render(firm_name: str, results: list[tuple[Tag, Verdict]], evidence: Optiona
     for doc, passage, tagged, status in sections:
         ids = ", ".join(one_line(tag.id) for tag, _ in tagged)
         lines += [f"## {ids}: {status.upper()}", "", *_quote(passage), "", f"- document: `{one_line(doc)}`"]
+        sources = list(dict.fromkeys(tag.source for tag, _ in tagged if tag.source))
+        if sources:
+            lines.append(f"- source: {one_line('; '.join(sources))}")
         for tag, verdict in tagged:
             lines += _tag_lines(tag, verdict)
         lines.append("")
