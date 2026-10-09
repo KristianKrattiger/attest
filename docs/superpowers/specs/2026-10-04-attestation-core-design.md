@@ -563,3 +563,25 @@ sections above, these win. Each line says what the tool does, then why.
 - Under the count line, an exports table gives each export's reader, file,
   `exported_at` in UTC and row count (final review I2). Why: a reader of the
   report must see which exports, taken when, the verdicts rest on.
+
+## Amended 2026-10-08 (documents read by intake)
+
+- Attestation documents may come from intake (intake `docs/format.md`, format 1): `attest/<name>.txt` with
+  `attest/<name>.txt.map.json` beside it, the original under `sources/`. attest reads the sidecar with the
+  standard library and imports no intake code (intake spec, decision 3).
+- The run stops on a sidecar of another format, a text edited after it was read (the hash is taken on the LF
+  text, so a CRLF checkout still matches) or an incomplete reading. It also stops on a damaged sidecar: a field
+  attest reads missing or of the wrong type, or a quoted line with text on it that has no entry. Why: a damaged
+  reading must not vouch for anything, and the stop names the field or the line.
+- A tag is refused (the run stops with the tag and the reason named, like the other grounding refusals) when its
+  quote touches a line read by OCR (`how` is `ocr` or `rescanned`), a `quoted` line, a `no_header` table row, a
+  line read in a way attest does not know (`how` is neither `text_layer` nor `native`), a line on a page the
+  reading does not list, or a line on a page whose parse or OCR grade is below GOOD or is not a grade attest
+  knows (an absent grade is not a refusal); and every table row when intake's table-fidelity bar is missed
+  (`REFUSE_TABLE_ROWS` in `attest/reading.py`). attest vouches only for what it recognises.
+- Two departures from the intake spec's wording, with their evidence (intake RESULTS.md; scratch run of
+  2026-10-08): the OCR rule replaces "any grade below GOOD" for OCR text, because Docling's OCR grade stayed
+  EXCELLENT on pages that lost up to 27% of their words; and the layout grade is not a reason to refuse, because
+  a born-digital form's layout was graded FAIR (0.68) while its text layer read exactly.
+- Each attestation in the report gets a `- source:` line: the original's name, the first 12 hex digits of its
+  hash and the pages, slides or cells its lines came from, or `plain text, no source location`.

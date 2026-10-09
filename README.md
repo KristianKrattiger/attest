@@ -18,7 +18,10 @@ How the firm produces each export: `docs/exports.md`.
 
     firm/<name>/
       attest/            the attestation documents, plain UTF-8 text
-                         (application.txt, wisp.txt, ...); tags may quote only these
+                         (application.txt, wisp.txt, ...); tags may quote only these.
+                         A document intake read from a PDF, Word file or scan has
+                         its sidecar beside it (wisp.txt.map.json)
+      sources/           the originals intake read (WISP.pdf, ...); never quoted
       exports/
         manifest.yaml    each export file with its reader and exported_at
         *.json           the export files (see docs/exports.md)
@@ -75,6 +78,29 @@ attested words, exactly as the document has them), and `control` and `scope`
   words. Quote enough to be unique.
 - An application answer of "No" is a disclosure, not an attestation, and is
   not tagged.
+
+## Documents read by intake
+
+A firm's WISP and insurance application usually arrive as PDF or Word. intake, a separate private package,
+reads them into the text attest quotes and a sidecar that says where each line came from and how it was read:
+
+    intake read firm/<name>/sources/WISP.pdf --out firm/<name>/attest/wisp.txt
+
+Tags name `attest/wisp.txt` as before. With the sidecar beside it, attest also:
+
+- **stops the run** if the text was edited after it was read (its hash no longer matches the sidecar; a CRLF
+  checkout still matches), if the reading is incomplete, if the sidecar is not intake's format 1, or if the
+  sidecar is damaged: a field missing or of the wrong type, or a quoted line with text on it but no entry;
+- **refuses a tag** whose quote touches a line read by OCR, a quoted earlier email, a table row read without its
+  headers, a line read in a way attest does not know, a line on a page that the reading does not list, or a line
+  on a page whose parse or OCR grade is below good or is not a grade attest knows. attest vouches only for what
+  it recognises, and an absent grade is not a refusal. Docling's OCR grade stayed "excellent" on scans that lost
+  a quarter of their words (intake's RESULTS.md), so attest never vouches for OCR text: tag a born-digital copy,
+  or a plain-text document a person has checked against the original;
+- **cites the original** in the report: `- source: WISP.pdf (sha256 cc5d02b898ad), p. 1`.
+
+A document with no sidecar is checked as plain text, and the report says `- source: plain text, no source
+location`. A tag may never name a `.map.json` file.
 
 ## Running
 
