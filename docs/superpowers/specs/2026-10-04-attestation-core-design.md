@@ -150,7 +150,7 @@ same data carries no backup timestamps, so it cannot prove a daily backup.
 paid check relies on this reader.** A reader that finds a field missing
 stops the run, so a mismatch is loud, never silent.
 
-`docs/exports.md` in the repo gives, per reader, the command that produces
+`docs/engineering/exports.md` in the repo gives, per reader, the command that produces
 the export and the documentation page for its fields.
 
 ### Populations

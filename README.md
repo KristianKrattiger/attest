@@ -1,136 +1,53 @@
 # attest
 
-Checks a firm's insurance application and written information security plan
-(WISP) against what its Microsoft 365 and Veeam exports show. Each attestation
-comes out **backed**, **gap** or **unchecked**, with the export rows cited.
-It never reports backed without proof that covers the whole attested
-population: missing evidence is unchecked, a shown failure is a gap.
+Attest checks a small firm's insurance application and its written information security plan against read-only exports from Microsoft 365 and Veeam. Each claim comes out **backed**, **gap**, or **unchecked**, and the report cites the export rows it rests on.
 
-    py -3.12 -m venv venv
-    venv/Scripts/python.exe -m pip install -r requirements.txt
-    venv/Scripts/python.exe -m pytest
-    venv/Scripts/python.exe -m attest check firm/dev
+The check runs on a folder on disk. It reads the firm's text and exports and writes `report.md`. It makes no network call.
 
-Design: `docs/superpowers/specs/2026-10-04-attestation-core-design.md`.
-How the firm produces each export: `docs/exports.md`.
+## What it is for
 
-## Firm folder
+Accounting and tax practices, law offices, and wealth advisors sign statements about their own security every year. A cyber insurance application asks what is in place. A tax preparer is required to keep a written information security plan. An answer that is wrong can void the policy the firm is counting on.
 
-    firm/<name>/
-      attest/            the attestation documents, plain UTF-8 text
-                         (application.txt, wisp.txt, ...); tags may quote only these.
-                         A document intake read from a PDF, Word file or scan has
-                         its sidecar beside it (wisp.txt.map.json)
-      sources/           the originals intake read (WISP.pdf, ...); never quoted
-      exports/
-        manifest.yaml    each export file with its reader and exported_at
-        *.json           the export files (see docs/exports.md)
-      tags.yaml          the confirmed tags
-      truth.yaml         dev firm only: the expected verdict of each tag
-      report.md          written by the check
+In *Travelers v. ICS* (2022), the application said multi-factor login was used everywhere. It was only on the firewall. After a ransomware attack, the insurer had the policy rescinded.
 
-## `tags.yaml`
+The firm already has to have the plan. The product is the verification of that plan and of the insurance application, sentence by sentence, against the systems the firm already runs.
 
-```yaml
-tags:
-  - id: wisp-edr
-    doc: attest/wisp.txt
-    quote: "Every company laptop runs Microsoft Defender for Business, which is monitored for alerts."
-    control: edr
-    scope: all_endpoints
-  - id: wisp-edr-alerts
-    doc: attest/wisp.txt
-    quote: "Every company laptop runs Microsoft Defender for Business, which is monitored for alerts."
-    control: edr
-    scope: alert_monitoring
-```
+## The three answers
 
-Each tag has exactly these fields: `id` (unique), `doc` (a file under
-`attest/`, written as its path from the firm folder with forward slashes and
-the file's own letter case, such as `attest/wisp.txt`; any other spelling,
-such as `attest/./wisp.txt` or `attest/WISP.txt`, is refused, and so is a
-second name, such as a hard link, for a file another tag names), `quote` (the
-attested words, exactly as the document has them), and `control` and `scope`
-(a pair from `profile/controls.yaml`).
+- **Backed.** The exports show the claim holds for the whole population it names.
+- **Gap.** The exports show a failure, and they name who or what failed.
+- **Unchecked.** The exports in hand do not settle the claim. Unchecked is a finding. It means the evidence does not settle it.
 
-- **Every claim in a quote gets a tag.** Several tags may share one quote, as
-  above, or quote different clauses of one passage. A claim no export speaks
-  to still gets a tag, on one of the always-unchecked scopes
-  (`mfa.remote_access`, `edr.alert_monitoring`, `backup.m365_files`,
-  `backup.servers`, `backup.offline_copy`, `backup.restore_tested`).
-- **An attestation is the lines its tags touch.** Tags in one document whose
-  quotes touch a common line, directly or through a tag whose quote spans
-  several lines, are one attestation. The report quotes those whole lines,
-  heads them with the worst of the tags' verdicts (any gap, else any
-  unchecked, else backed) and lists each tag with its own; the count line
-  counts attestations. So tags on one passage share one verdict, and a WISP
-  written as one long paragraph per line rolls all of that paragraph's
-  sentences into one attestation.
-- **Grouping goes by lines, so tag wrapped sentences whole.** A sentence
-  wrapped across lines, tagged with one quote per clause, stays split into
-  separate attestations, one per line its clauses sit on. Tag a wrapped
-  sentence with a quote that spans its lines, or keep one sentence or question
-  per line.
-- **Tags group only within one document.** A claim must be tagged in the
-  document it is quoted from, and a copy of a document under another name is a
-  separate document: tags on the copy never join tags on the original.
-- A quote must appear exactly once in its document and contain at least three
-  words. Quote enough to be unique.
-- An application answer of "No" is a disclosure, not an attestation, and is
-  not tagged.
+A false backed tells a firm it may sign something the exports do not support. That is the error the rules are built to refuse. A false gap costs a reviewer a few minutes to annotate a known exception. Missing evidence is unchecked. A shown failure is a gap. Backed requires proof that covers the whole claim.
 
-## Documents read by intake
+## How a check works
 
-A firm's WISP and insurance application usually arrive as PDF or Word. intake, a separate private package,
-reads them into the text attest quotes and a sidecar that says where each line came from and how it was read:
+The firm's sentences go in as plain text: the application and the written plan.
 
-    intake read firm/<name>/sources/WISP.pdf --out firm/<name>/attest/wisp.txt
+The exports go in beside them. The firm runs them read-only while the reviewer watches, and the check never holds admin credentials. The exports are the user list, MFA registration, Conditional Access policies, security defaults, directory role assignments, Intune devices, Defender for Endpoint machines, and Veeam's mailbox backup report. A manifest names each file, the reader that parses it, and the UTC time it was taken.
 
-Tags name `attest/wisp.txt` as before. With the sidecar beside it, attest also:
+Tags a person has confirmed go in next. Each tag quotes one claim and names the control and the scope that claim is about. The scopes a current export can back are MFA for all users, for email, and for admins; endpoint protection for all endpoints; and backup of Microsoft 365 mailboxes. Remote-access MFA, alert monitoring, Microsoft 365 file backup, server backup, an offline copy, and a tested restore are tagged too, and they come out unchecked, because no export in this set speaks to them. A model may later suggest a tag. A person confirms it. A rule decides the verdict.
 
-- **stops the run** if the text was edited after it was read (its hash no longer matches the sidecar; a CRLF
-  checkout still matches), if the reading is incomplete, if the sidecar is not intake's format 1, or if the
-  sidecar is damaged: a field missing or of the wrong type, or a quoted line with text on it but no entry;
-- **refuses a tag** whose quote touches a line read by OCR, a quoted earlier email, a table row read without its
-  headers, a line read in a way attest does not know, a line on a page that the reading does not list, or a line
-  on a page whose parse or OCR grade is below good or is not a grade attest knows. attest vouches only for what
-  it recognises, and an absent grade is not a refusal. Docling's OCR grade stayed "excellent" on scans that lost
-  a quarter of their words (intake's RESULTS.md), so attest never vouches for OCR text: tag a born-digital copy,
-  or a plain-text document a person has checked against the original;
-- **cites the original** in the report: `- source: WISP.pdf (sha256 cc5d02b898ad), p. 1`.
+The rule for that control and scope compares the claim to the exports. The population comes from the account list or the device list, not from whoever happened to show up in the evidence file. A Conditional Access policy the rule does not fully understand does not count as proof.
 
-A document with no sidecar is checked as plain text, and the report says `- source: plain text, no source
-location`. A tag may never name a `.map.json` file.
+One sentence shows why the unchecked scopes exist. "Every company laptop runs Microsoft Defender for Business, which is monitored for alerts." That is two claims. Laptop coverage can be backed or a gap, from the Intune device list joined to the Defender machine list. Alert monitoring is unchecked, because no export shows that anyone watches the alerts. A tag on only the Defender half would let the sentence come out backed, with the monitoring claim never tested.
 
-## Running
+The report quotes the lines those tags touch. It heads them with the worst verdict on that passage: any gap, else any unchecked, else backed. Under the quotation it lists each tag with its own verdict and the cited rows.
 
-`venv/Scripts/python.exe -m attest check firm/<name>` writes
-`firm/<name>/report.md` and prints it. Exit codes:
+The mechanics, the component diagram, and the level 0 data-flow diagram are in [the architecture note](docs/engineering/architecture.md).
 
-- `0`: the check ran and the report was written.
-- `2`: an input problem (a bad tag, a malformed export, a missing field; the
-  message names the file and row, or the tag), or the report could not be
-  written.
+## What is built
 
-A run that fails replaces the report with a stub that begins
-`# Attestation check: <name>` and says `CHECK FAILED: <why>`, so an earlier
-run's verdicts never look current. Only the tool's own `report.md` (one that
-begins with that title) is replaced, or a new one written in a folder that has
-a `tags.yaml`; any other file is left alone. An unexpected error leaves the
-same stub and shows its traceback.
+The check is built. Readers turn each export into facts and keep each fact's row. Proof rules produce the verdict. The report groups claims that share a line. A made-up firm with planted truth is checked end to end, and the review of the rules was aimed at paths to a false backed. The measured state, with its test count and its date, is in the [engineering register](docs/engineering/README.md#34-attest-the-deterministic-attestation-check).
 
-## Known limitations
+What comes after the check is a bet, and it is not running. It is a private search tool over the firm's own files: every answer quotes a source, and when nothing supports an answer the tool refuses. The commitment that bet is meant to keep is that a firm's data does not train a model used by another firm. That later tool is the node. Nothing leaves the firm's environment except aggregate counts the firm has seen first. Reading the firm's files, walls between clients, and a staff client are not built. The sequence, the check first and that tool only after paid checks, is in the [strategy register](docs/strategy/README.md#43-sequence).
 
-- A Conditional Access policy that targets groups (`includeGroups`) can only
-  produce gaps: v1 has no group-membership export, so it cannot show who such
-  a policy covers.
-- Unlicensed or service accounts are permanent backup gaps: every enabled
-  member account counts, mailbox or not, and the reviewer annotates them.
-- The three-word rule cannot be met inside text written without spaces
-  between words (Chinese, Japanese): such a quote has to span spaces, or the
-  passage cannot be tagged.
-- The two symlink tests skip on a machine without symlink privilege (as on
-  the development machine); run the suite once on a machine that has it.
-- The Veeam field names (`Email`, `IsMailboxBackedUp`, `MailboxBackedUpTime`)
-  come from Veeam's published examples, not its reference documentation:
-  confirm them, and that `Email` is the UPN, on the first real export.
+## Where the rest is
+
+Three registers sit beside this account. A conceptual claim is judged on the argument. An engineering claim is judged by the code, the tests, and the recorded measurements. A strategy claim is a bet, with its assumption and what would confirm or refute it. A bet does not borrow the authority of a measurement.
+
+- **[Conceptual](docs/conceptual/README.md).** Why two passages about the same thing are not yet a relation, and why a model does not decide whether a sentence and an export row agree.
+- **[Engineering](docs/engineering/README.md).** What is built and what was measured, [how to run a check](docs/engineering/using.md), [how the firm produces each export](docs/engineering/exports.md), and the [architecture](docs/engineering/architecture.md) of the check.
+- **[Strategy](docs/strategy/README.md).** Who would pay, the prices, the sequence, and the risks. Each one is written as a bet.
+
+The map of those files is [docs/README.md](docs/README.md).
