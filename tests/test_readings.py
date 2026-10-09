@@ -107,3 +107,83 @@ def test_a_sidecar_is_never_a_document(tmp_path):
     tags = "tags:\n  - {id: w1, doc: attest/wisp.txt.map.json, quote: All staff use MFA, control: mfa, scope: all_users}\n"
     with pytest.raises(AttestError, match="is a reading's sidecar, not a document"):
         load_tags(firm(tmp_path, sidecar(), tags=tags), PROFILE)
+
+
+MALFORMED = {
+    "source is a string": lambda d: d.update(source="WISP.pdf"),
+    "source has no name": lambda d: d["source"].pop("name"),
+    "lines is null": lambda d: d.update(lines=None),
+    "a line entry is a string": lambda d: d.update(lines=["line 1"]),
+    "a line has no how": lambda d: d["lines"][0].pop("how"),
+    "flags is null": lambda d: d["lines"][0].update(flags=None),
+    "loc is null": lambda d: d["lines"][0].update(loc=None),
+    "a loc page is a list": lambda d: d["lines"][0]["loc"].update(page=[1]),
+    "pages is null": lambda d: d.update(pages=None),
+    "a page has no page number": lambda d: d["pages"][0].pop("page"),
+    "grades is a list": lambda d: d["pages"][0].update(grades=["excellent"]),
+    "format is true": lambda d: d.update(format=True),
+    "format is 1.0": lambda d: d.update(format=1.0),
+}
+
+
+@pytest.mark.parametrize("damage", list(MALFORMED.values()), ids=list(MALFORMED))
+def test_a_malformed_sidecar_stops_the_run_naming_it(tmp_path, damage):
+    data = sidecar()
+    damage(data)
+    with pytest.raises(AttestError, match="wisp.txt.map.json"):
+        load_tags(firm(tmp_path, data), PROFILE)
+
+
+def test_a_quoted_line_with_no_entry_stops_the_run(tmp_path):
+    with pytest.raises(AttestError, match="line 1 has no entry"):
+        load_tags(firm(tmp_path, sidecar(lines=[])), PROFILE)
+
+
+def test_a_line_on_a_page_the_reading_does_not_list_is_refused(tmp_path):
+    with pytest.raises(AttestError, match="tag 'w1': line 1 is on page 2, which the reading does not list"):
+        load_tags(firm(tmp_path, sidecar(lines=[line(1, 0, 35, page=2)])), PROFILE)
+
+
+def test_a_page_whose_grade_is_unspecified_is_refused(tmp_path):
+    with pytest.raises(AttestError, match="tag 'w1': line 1 is on page 1, whose parse grade is unspecified"):
+        load_tags(firm(tmp_path, sidecar(grades={"layout": "excellent", "parse": "unspecified"})), PROFILE)
+
+
+def test_an_absent_grade_is_not_a_refusal(tmp_path):
+    [tag] = load_tags(firm(tmp_path, sidecar(grades={"layout": "excellent"})), PROFILE)
+    assert tag.source.endswith("p. 1")
+
+
+def test_a_line_read_some_other_way_is_refused(tmp_path):
+    with pytest.raises(AttestError, match="tag 'w1': line 1 was read in a way attest does not know"):
+        load_tags(firm(tmp_path, sidecar(lines=[line(1, 0, 35, how="weird")])), PROFILE)
+
+
+def test_a_quote_spanning_a_blank_line_is_accepted(tmp_path):
+    tags = ('tags:\n  - {id: w1, doc: attest/wisp.txt, quote: "All staff use MFA on every account.\\n\\n'
+            'Control: EDR; Scope: All laptops", control: mfa, scope: all_users}\n')
+    [tag] = load_tags(firm(tmp_path, sidecar(lines=[line(1, 0, 35), line(3, 37, 69)]), tags=tags), PROFILE)
+    assert (tag.span.first, tag.span.last) == (1, 3)
+    assert tag.source == f"WISP.pdf (sha256 {SHA[:12]}), p. 1"
+
+
+def test_a_table_row_is_accepted_and_cited_while_table_rows_are_not_refused(tmp_path):
+    tags = "tags:\n  - {id: e1, doc: attest/wisp.txt, quote: 'EDR; Scope: All laptops', control: edr, scope: all_endpoints}\n"
+    [tag] = load_tags(firm(tmp_path, sidecar(), tags=tags), PROFILE)
+    assert tag.source == f"WISP.pdf (sha256 {SHA[:12]}), p. 1"
+
+
+@pytest.mark.parametrize("loc, cited", [
+    ([{"page": 1, "bbox": [72.0, 700.0, 540.0, 712.0], "origin": "bottomleft"},
+      {"page": 2, "bbox": [72.0, 700.0, 540.0, 712.0], "origin": "bottomleft"}], "p. 1, p. 2"),
+    ({"slide": 2}, "slide 2"),
+    ({"sheet": "Budget", "cells": "A3:D3"}, "Budget!A3:D3"),
+])
+def test_a_line_is_cited_by_its_location_in_the_original(tmp_path, loc, cited):
+    entry = line(1, 0, 35)
+    entry["loc"] = loc
+    data = sidecar(lines=[entry])
+    data["pages"].append({"page": 2, "read": "text_layer", "status": "read", "grades": {"parse": "excellent"},
+                          "scores": {}})
+    [tag] = load_tags(firm(tmp_path, data), PROFILE)
+    assert tag.source == f"WISP.pdf (sha256 {SHA[:12]}), {cited}"
