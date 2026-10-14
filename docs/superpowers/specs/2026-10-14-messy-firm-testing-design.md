@@ -1,7 +1,7 @@
 # Spec: testing the check against messy, realistic Microsoft 365 exports
 
 **Date:** 2026-10-14
-**Status:** Approved in brainstorm, awaiting review of this file
+**Status:** Approved 2026-10-14; amended in planning (see the end)
 **Repo:** attest
 
 ## Problem
@@ -236,3 +236,17 @@ Steps 2, 4 and 6 are done by hand in the tenant and the Azure portal. The implem
 - **Veeam Backup for Microsoft 365 Community Edition** is free for up to 10 users. ([Veeam](https://veeam.com/free-backup-microsoft-office-365.html)) The current system requirements list 8 cores and 16 GB, and Windows 11 22H2 and earlier. ([requirements](https://helpcenter.veeam.com/docs/vbo365/guide/vbo_system_requirements.html))
 - **Defender's List machines API** returns `404 Not Found` when there are no recent machines, not an empty list. Microsoft's example response has no `onboardingStatus` field. ([List machines API](https://learn.microsoft.com/en-us/defender-endpoint/api/get-machines)) Today's export command would throw on the 404 and write no file, so the check would read the EDR export as missing.
 - **This laptop:** Windows 11 Home 10.0.26200, 15.7 GB of RAM, an i7-13700H, Windows PowerShell 5.1 only, no Graph PowerShell module, no VirtualBox.
+
+## Amended 2026-10-14 (planning)
+
+The implementation plan, `docs/superpowers/plans/2026-10-14-messy-firm-testing.md`, was prototyped before it was written. What the prototype found, and where the plan departs from the design above:
+
+- **A known false backed.** A shared mailbox the backup job never covered comes out backed: a disabled account joins the backup population only when the Veeam export lists it. The operator "shared mailbox Veeam never saw" records it as `known`: its alone test is a strict expected failure, and it is left out of combinations. The rule is fixed in its own change.
+- **Break-glass accounts are a backup false gap.** They hold no mailbox, but every enabled member is counted. This is the known limit on unlicensed accounts in `using.md`.
+- **The nameless discovered device keeps its refusal** (`may_stop`) until a real capture shows whether Defender writes a null `computerDnsName`.
+- **Twins carry their own `before`.** Each is `firm/lab/<twin>/before/exports` and `after/exports`, so drift between captures taken days apart is not read as a mismatch.
+- **The deny-list is `firm/lab/raw/deny.txt`.** The scrub script writes it, and it is gitignored. Kept in the test, it would commit the owner's address.
+- **Nine members and a former employee,** so that the ten mailboxes fit Veeam Community Edition.
+- **"A Veeam export of one user, written as one object" is dropped.** On a seed with more than one mailbox, it cannot be made without changing the truth.
+- **`needs` and `touches` are behaviour, not fields.** An operator skips itself when the firm lacks what it needs, and marks what it edits, so no two operators edit one entity.
+- **Operators live in one module per area, and archetype truth is per seed:** `tests/messy/archetypes/<seed>/`.
