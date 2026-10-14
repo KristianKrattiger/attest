@@ -122,6 +122,12 @@ same stub and shows its traceback.
   a policy covers.
 - Unlicensed or service accounts are permanent backup gaps: every enabled
   member account counts, mailbox or not, and the reviewer annotates them.
+- A shared mailbox the backup job never covered is not counted. A shared
+  mailbox is a disabled user object, and a disabled account joins the backup
+  population only when the Veeam export lists it, so backup can come out
+  backed while that mailbox holds unprotected mail. This is a known false
+  backed (`tests/messy/backup.py`, "shared mailbox Veeam never saw"), to be
+  fixed in the backup rule in its own change.
 - The three-word rule cannot be met inside text written without spaces
   between words (Chinese, Japanese): such a quote has to span spaces, or the
   passage cannot be tagged.
