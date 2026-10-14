@@ -9,9 +9,12 @@ Properties, for every run (spec 2026-10-14, The harness):
 from __future__ import annotations
 
 import random
+import re
 import tempfile
+from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 from attest.compare import check
@@ -115,3 +118,49 @@ def shrink(ops: Sequence[Operator], fails: Callable[[tuple[Operator, ...]], bool
                 ops, shrunk = candidate, True
                 break
     return ops
+
+
+@dataclass
+class Tally:
+    """What a long run found: every property violation, every stop, and the noise cost of each "holds" operator."""
+
+    runs: int = 0
+    problems: list[str] = field(default_factory=list)
+    stops: Counter = field(default_factory=Counter)
+    applied: Counter = field(default_factory=Counter)
+    degraded: Counter = field(default_factory=Counter)
+    drops: defaultdict = field(default_factory=lambda: defaultdict(Counter))
+
+    def add(self, outcome: Outcome, seed: Outcome, problems: list[str]) -> None:
+        self.runs += 1
+        self.problems += problems
+        if outcome.stopped:
+            self.stops[re.sub(r"rows? \d+( and \d+)?", "row N", outcome.stopped)] += 1
+        for op in outcome.applied:
+            if op.effect == "holds":
+                self.applied[op.name] += 1
+        for name, statuses in degraded(outcome, seed).items():
+            self.degraded[name] += 1
+            self.drops[name].update(statuses)
+
+    def markdown(self, seed_name: str, seed_number: int, today: date) -> str:
+        lines = [
+            "# Messy-firm run", "",
+            f"Run {today.isoformat()} on the {seed_name} seed: {self.runs} combinations of one to four operators "
+            f"from tests/messy/catalog.py, random seed {seed_number}.", "",
+            f"- Property violations: {len(self.problems)}",
+            f"- Runs that stopped: {sum(self.stops.values())}", "",
+        ]
+        if self.problems:
+            lines += ["## Violations", ""] + [f"- {p}" for p in self.problems] + [""]
+        lines += ["## Stops", "", "| Reason | Runs |", "|---|---|"]
+        lines += [f"| {reason} | {n} |" for reason, n in sorted(self.stops.items())]
+        lines += ["", '## Noise cost of "holds" operators', "",
+                  "A run counts against an operator when a scope it declares left the seed's status while it was "
+                  'applied and no applied "breaks" operator breaks that scope. Every "holds" operator applied in '
+                  "that run with the same scope is charged.", "",
+                  "| Operator | Runs applied | Runs degraded | Degraded to |", "|---|---|---|---|"]
+        for name in sorted(self.applied):
+            to = ", ".join(f"{status} {n}" for status, n in sorted(self.drops.get(name, Counter()).items())) or "-"
+            lines.append(f"| {name} | {self.applied[name]} | {self.degraded[name]} | {to} |")
+        return "\n".join(lines) + "\n"

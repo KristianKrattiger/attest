@@ -7,3 +7,5 @@ dependencies = ["PyYAML>=6.0"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = ["messy: the long messy-firm run; writes firm/lab/messy-summary.md (run with: pytest -m messy)"]
+addopts = "-m 'not messy'"
