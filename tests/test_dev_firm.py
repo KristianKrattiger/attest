@@ -1,4 +1,3 @@
-import json
 import shutil
 from pathlib import Path
 
@@ -9,6 +8,10 @@ from attest.__main__ import main
 from attest.compare import check, run
 from attest.model import AttestError
 from attest.report import attestations, combined_status, render
+from messy.heal import DOMAIN, HEAL
+from messy.heal import edit as _edit
+from messy.heal import machine as _machine
+from messy.heal import row as _row
 
 DEV = Path(__file__).resolve().parents[1] / "firm" / "dev"
 
@@ -49,7 +52,6 @@ def test_the_two_compound_attestations_are_each_a_gap():
 DANA = "a0000000-0000-4000-8000-000000000001"
 MARCUS = "a0000000-0000-4000-8000-000000000002"
 GLOBAL_ADMIN = "62e90394-69f5-4237-9190-012177145e10"
-DOMAIN = "harborpine.example"
 PROVABLE = {"mfa.email", "mfa.all_users", "mfa.admins", "edr.all_endpoints", "backup.m365_mailboxes"}
 MFA_ALL_USERS = ("app-4.1", "wisp-mfa-all")
 MFA_ADMINS = ("app-4.3", "wisp-mfa-admins")
@@ -57,28 +59,8 @@ EDR = ("app-4.4", "wisp-edr")
 BACKUP = ("app-4.5", "wisp-backup")
 
 
-def _edit(file, change):
-    """An edit of one export: change(data) alters the parsed JSON in place."""
-    def apply(exports):
-        path = exports / file
-        data = json.loads(path.read_text(encoding="utf-8"))
-        change(data)
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return apply
-
-
 def _policy_1_users(**fields):
     return _edit("ca-policies.json", lambda ca: ca["value"][0]["conditions"]["users"].update(fields))
-
-
-def _row(rows, key, value):
-    (row,) = [r for r in rows if r[key] == value]
-    return row
-
-
-def _machine(name, health="Active", aad=None, last_seen="2026-10-01T09:30:00Z"):
-    return {"id": name.split(".")[0].ljust(40, "0")[:40], "computerDnsName": f"{name}.{DOMAIN}", "aadDeviceId": aad,
-            "osPlatform": "Windows11", "onboardingStatus": "Onboarded", "healthStatus": health, "lastSeen": last_seen}
 
 
 def _manifest(old, new):
@@ -88,17 +70,6 @@ def _manifest(old, new):
         assert text.count(old) == 1
         manifest.write_text(text.replace(old, new), encoding="utf-8")
     return apply
-
-
-HEAL = (
-    _policy_1_users(excludeUsers=[]),  # Dana no longer excluded
-    _edit("registration.json", lambda reg: _row(reg["value"], "id", "a0000000-0000-4000-8000-000000000012").update(
-        isMfaRegistered=True)),  # Ivan registered
-    _edit("defender-machines.json", lambda mde: mde["value"].append(
-        _machine("hp-lt-12", aad="d0000000-0000-4000-8000-000000000012"))),  # Ivan's laptop onboarded
-    _edit("veeam-users.json", lambda rows: _row(rows, "Email", f"carmen.diaz@{DOMAIN}").update(
-        IsMailboxBackedUp=True, MailboxBackedUpTime="2026-10-01T02:10:00Z")),  # Carmen's mailbox backed up
-)
 
 
 def _copy(tmp_path, *edits):
