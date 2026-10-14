@@ -28,7 +28,7 @@ def _shared_mailbox(firm: Firm) -> bool:
 
 
 def _shared_mailbox_never_seen(firm: Firm) -> bool:
-    add_account(firm, "front.desk", "Front Desk (shared)", enabled=False, registered=False, mailbox=None)
+    add_account(firm, "front.office.2", "Front Office 2 (shared)", enabled=False, registered=False, mailbox=None)
     return True
 
 
