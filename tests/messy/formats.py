@@ -22,12 +22,12 @@ def _write_all(firm: Firm, encode) -> bool:
 
 def _utf16(data) -> bytes:
     """Windows PowerShell 5.1's Out-File default: UTF-16 LE with a byte-order mark, CRLF."""
-    return ("﻿" + json.dumps(data, indent=2).replace("\n", "\r\n") + "\r\n").encode("utf-16-le")
+    return ("\ufeff" + json.dumps(data, indent=2).replace("\n", "\r\n") + "\r\n").encode("utf-16-le")
 
 
 def _utf8_bom_crlf(data) -> bytes:
     """Windows PowerShell 5.1's Out-File -Encoding utf8: UTF-8 with a byte-order mark, CRLF."""
-    return ("﻿" + json.dumps(data, indent=4).replace("\n", "\r\n") + "\r\n").encode("utf-8")
+    return ("\ufeff" + json.dumps(data, indent=4).replace("\n", "\r\n") + "\r\n").encode("utf-8")
 
 
 def _reordered(firm: Firm) -> bool:

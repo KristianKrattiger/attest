@@ -90,24 +90,81 @@ def test_added_records_with_other_fields_are_a_mismatch(seeded):
         "only the capture's have []"]
 
 
+def _twin_problems(op, folder):
+    """Why this operator does not agree with its twin capture in `folder`, in words; [] when it does."""
+    real = run_capture(folder / "after" / "exports")
+    if op.effect == "stops":
+        return [] if op.stop in real.stopped else [f"the capture does not stop with '{op.stop}': {real.stopped!r}"]
+    before, after = Firm.load(folder / "before" / "exports"), Firm.load(folder / "after" / "exports")
+    synthetic, applied, _ = apply(before, (op,))
+    if applied != (op,):
+        return [f"the operator finds nothing to edit in {folder.name}/before"]
+    if problems := mismatches(before, synthetic, after):
+        return problems
+    # A before that is already a gap would let a rule that misses the real mess pass, so it must be backed first.
+    start = run_capture(folder / "before" / "exports")
+    if start.stopped:
+        return [f"the before capture stops: {start.stopped}"]
+    scoped = {tag: (scope, status) for tag, (scope, status, _) in start.verdicts.items() if scope in op.scopes}
+    if untagged := sorted(op.scopes - {scope for scope, _ in scoped.values()}):
+        return [f"the before capture has no tag on {', '.join(untagged)}, so it shows nothing about the mess"]
+    if unbacked := [f"{tag} ({scope}) is {status}" for tag, (scope, status) in scoped.items() if status != "backed"]:
+        return [f"the before capture is already not backed: {', '.join(unbacked)}"]
+    problems = violations(Outcome((op,), (), real.verdicts, real.stopped), start)
+    if op.known:  # only a false backed confirms it: any other problem, an undecided stop included, is not that
+        if any(problem.startswith("false backed") for problem in problems):
+            return []
+        if problems:
+            return [f"'{op.name}' is `known` for a false backed, but its real capture gives: {'; '.join(problems)}"]
+        return [f"'{op.name}' no longer gives a false backed on its real capture: clear `known`"]
+    return problems
+
+
 @pytest.mark.parametrize("op", TWINS, ids=lambda op: op.name)
 def test_an_operator_makes_its_mess_the_way_the_tenant_did(op):
     folder = LAB / op.twin
     if not folder.exists():
         pytest.skip(f"no twin capture yet: firm/lab/{op.twin} (docs/engineering/lab.md)")
-    real = run_capture(folder / "after" / "exports")
-    if op.effect == "stops":
-        assert op.stop in real.stopped
-        return
-    before, after = Firm.load(folder / "before" / "exports"), Firm.load(folder / "after" / "exports")
-    synthetic, applied, _ = apply(before, (op,))
-    assert applied == (op,), f"the operator finds nothing to edit in firm/lab/{op.twin}/before"
-    assert mismatches(before, synthetic, after) == []
-    problems = violations(Outcome((op,), (), real.verdicts, real.stopped), run_capture(folder / "before" / "exports"))
-    if op.known:
-        assert problems, f"'{op.name}' no longer gives a false backed on its real capture: clear `known`"
-        return
-    assert problems == []
+    assert _twin_problems(op, folder) == []
+
+
+def _twin(tmp_path, before, after):
+    """A twin folder holding these two firms as its before and after captures."""
+    before.write(tmp_path / "before")
+    after.write(tmp_path / "after")
+    return tmp_path
+
+
+def test_a_twin_made_from_a_backed_before_agrees(seeded, tmp_path):
+    op = BY_NAME["VM off for 8 days"]
+    assert _twin_problems(op, _twin(tmp_path, seeded.firm, apply(seeded.firm, (op,))[0])) == []
+
+
+def test_a_twin_whose_before_is_already_a_gap_does_not_pass(seeded, tmp_path):
+    op = BY_NAME["VM off for 8 days"]
+    already_gap = apply(seeded.firm, (BY_NAME["sensor cut off"],))[0]  # one laptop is unhealthy before the mess
+    problems = _twin_problems(op, _twin(tmp_path, already_gap, apply(already_gap, (op,))[0]))
+    assert len(problems) == 1 and problems[0].startswith("the before capture is already not backed")
+    assert "edr.all_endpoints" in problems[0]
+
+
+def test_a_twin_whose_before_stops_does_not_pass(seeded, tmp_path):
+    op = BY_NAME["VM off for 8 days"]
+    padded = seeded.firm.copy()
+    padded.rows("entra_users")[0]["userPrincipalName"] += " "
+    problems = _twin_problems(op, _twin(tmp_path, padded, apply(padded, (op,))[0]))
+    assert len(problems) == 1 and problems[0].startswith("the before capture stops")
+
+
+def test_a_known_false_backed_is_confirmed_by_a_false_backed_and_by_nothing_else(seeded, tmp_path):
+    op = BY_NAME["shared mailbox Veeam never saw"]
+    assert op.known
+    after = apply(seeded.firm, (op,))[0]
+    assert _twin_problems(op, _twin(tmp_path / "honest", seeded.firm, after)) == []
+    after.rows("entra_users")[0]["userPrincipalName"] += " "  # the capture stops, for a reason nothing declares
+    problems = _twin_problems(op, _twin(tmp_path / "stops", seeded.firm, after))
+    assert len(problems) == 1 and "is `known` for a false backed" in problems[0]
+    assert "undecided stop" in problems[0]
 
 
 def test_the_dev_capture_as_written_gives_the_verdicts_the_harness_sees():
