@@ -129,6 +129,17 @@ def test_an_address_glued_to_a_word_is_scrubbed_once_it_is_passed_with_also_as_t
         '"y": "ip62001:db8::1", "z": "from ip_2001:db8::1. Done", "up": "ADDR2001:db8::1"}')
 
 
+def test_a_hit_inside_base64_is_scrubbed_once_the_whole_run_is_passed_with_also(tmp_path, capsys):
+    run = base64.b64encode(bytes(range(0x80, 0xA0)) + b"from 203.45.67.89").decode("ascii")
+    files = {"users.json": f'{{"blob": "{run}"}}'.encode("ascii")}
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    assert _scrub(tmp_path / "a", files, "--also", "203.45.67.89") == 1
+    assert "users.json: public IP address 203.45.67.89 (inside base64)" in capsys.readouterr().err
+    assert _scrub(tmp_path / "b", files, "--also", run) == 0
+    assert (tmp_path / "b" / "out" / "users.json").read_text(encoding="utf-8") == '{"blob": "redacted"}'
+
+
 def test_an_address_passed_with_also_is_never_matched_inside_a_longer_one():
     scrubber = Scrubber(TENANT, "Pat Example", "pat@example.net", also=("2606:4700::1", "10.0.0.4"))
     text = ('{"a": "2606:4700::1111", "b": "2606:4700::1", "c": "2606:4700::1:5", "n": "addr2606:4700::1111", '

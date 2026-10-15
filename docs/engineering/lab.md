@@ -221,7 +221,9 @@ A capture is refused too when it holds an IPv6 address glued to a word, such as 
 cannot tell it from a word and leaves it, and the error names the address (`users.json: public IP address
 2606:4700::1111`). Look at where it stands, then scrub again with the address passed as the error gives it:
 `--also 2606:4700::1111`. An address passed with `--also` becomes the documentation address it gets elsewhere, also
-where a word is glued to it, but never inside a longer address.
+where a word is glued to it, but never inside a longer address. A hit marked "(inside base64)" is different: the address
+or value stands only once the run is decoded, so passing it cannot reach it. Find the run of base64 in that file that
+decodes to it, and pass the whole run with `--also`, which replaces the run with `redacted`.
 
 Once `firm/lab/seed-clean/exports/manifest.yaml` exists, the messy-firm tests use it as their seed, and the four
 archetype tests fail until you have hand-checked each archetype against it and written its truth file in
