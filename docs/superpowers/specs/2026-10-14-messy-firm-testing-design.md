@@ -250,3 +250,12 @@ The implementation plan, `docs/superpowers/plans/2026-10-14-messy-firm-testing.m
 - **"A Veeam export of one user, written as one object" is dropped.** On a seed with more than one mailbox, it cannot be made without changing the truth.
 - **`needs` and `touches` are behaviour, not fields.** An operator skips itself when the firm lacks what it needs, and marks what it edits, so no two operators edit one entity.
 - **Operators live in one module per area, and archetype truth is per seed:** `tests/messy/archetypes/<seed>/`.
+- **The discovered unmanaged PC is `breaks` `edr.all_endpoints`,** stricter than the catalog row's `holds`. It matches the EDR rule's decision 3 (2026-10-05): a recently seen, onboardable, unhealthy machine outside the population is a gap. The discovered printer and the device with no DNS name stay `holds`.
+- **The shared-mailbox twin sits on "shared mailbox Veeam never saw".** The lab can make that mess: a shared mailbox the backup job never covered. The listed-but-not-backed variant has no twin, so its catalog row loses the ✓.
+- **Changed in review, with the user's agreement:**
+  - The never-saw mailbox is its own account (`front.office.2`), so it never collides with the listed one.
+  - The noise table counts a `holds` operator only in runs that finished, because a run that stopped gives no verdict to degrade.
+  - The fidelity check compares the JSON type and the nested path of every field an operator changes, not field names alone. For a twin that is not a `stops` operator it also requires the `before` capture to be backed on the operator's scopes.
+  - The scrubber covers every form of an address, the owner's name and its variants, and the tenant's label. It replaces a paged export's `$skiptoken`, which holds the last user's address, and it stages its output, moving it into place only when the whole capture passes the guard. The guard reads inside base64.
+  - The capture script and the runbook pin every write and capture to the lab tenant.
+- **`.gitignore` refuses `firm/lab/**/application.txt` and `firm/lab/**/wisp.txt`,** the refusal of real documents under `firm/lab` that Scrubbing and storage promises.

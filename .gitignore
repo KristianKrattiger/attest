@@ -3,3 +3,5 @@ __pycache__/
 .pytest_cache/
 firm/*/report.md
 firm/lab/raw/
+firm/lab/**/application.txt
+firm/lab/**/wisp.txt
