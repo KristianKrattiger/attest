@@ -1,0 +1,22 @@
+# The PowerShell 5.1 admin, on the healed dev firm (spec 2026-10-14, Pinned archetypes). Hand-checked 2026-10-14.
+# UTF-16 files with CRLF, Veeam times wrapped as PowerShell 5.1 DateTimes, rows and fields in another order: every
+# verdict is the seed's.
+operators:
+  - UTF-16 with CRLF
+  - Veeam times as PowerShell 5.1 DateTimes
+  - rows and fields reordered
+verdicts:
+  app-4.1: {status: backed}
+  app-4.2: {status: unchecked}
+  app-4.3: {status: backed}
+  app-4.4: {status: backed}
+  app-4.5: {status: backed}
+  app-4.6: {status: unchecked}
+  wisp-mfa-all: {status: backed}
+  wisp-mfa-admins: {status: backed}
+  wisp-vpn: {status: unchecked}
+  wisp-edr: {status: backed}
+  wisp-edr-alerts: {status: unchecked}
+  wisp-backup: {status: backed}
+  wisp-backup-files: {status: unchecked}
+  wisp-immutable: {status: unchecked}

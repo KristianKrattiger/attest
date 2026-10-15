@@ -1,0 +1,24 @@
+# The MSP-run firm, on the healed dev firm (spec 2026-10-14, Pinned archetypes). Hand-checked 2026-10-14.
+# The break-glass accounts are excluded from every policy and hold Global Administrator, so every MFA scope is a gap
+# naming them. Backup names them too: they hold no mailbox, and every enabled member is counted (a false gap).
+# The report-only admin-portals policy, the authentication-strength grant and the service principal change nothing.
+operators:
+  - microsoft-managed admin-portals policy
+  - break-glass accounts excluded
+  - grant through an authentication strength
+  - admin role held by a service principal
+verdicts:
+  app-4.1: {status: gap, entities: [break.glass1@harborpine.example, break.glass2@harborpine.example]}
+  app-4.2: {status: unchecked}
+  app-4.3: {status: gap, entities: [break.glass1@harborpine.example, break.glass2@harborpine.example]}
+  app-4.4: {status: backed}
+  app-4.5: {status: gap, entities: [break.glass1@harborpine.example, break.glass2@harborpine.example]}
+  app-4.6: {status: unchecked}
+  wisp-mfa-all: {status: gap, entities: [break.glass1@harborpine.example, break.glass2@harborpine.example]}
+  wisp-mfa-admins: {status: gap, entities: [break.glass1@harborpine.example, break.glass2@harborpine.example]}
+  wisp-vpn: {status: unchecked}
+  wisp-edr: {status: backed}
+  wisp-edr-alerts: {status: unchecked}
+  wisp-backup: {status: gap, entities: [break.glass1@harborpine.example, break.glass2@harborpine.example]}
+  wisp-backup-files: {status: unchecked}
+  wisp-immutable: {status: unchecked}

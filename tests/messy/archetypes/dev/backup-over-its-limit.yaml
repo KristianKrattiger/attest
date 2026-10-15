@@ -1,0 +1,40 @@
+# The backup over its limit, on the healed dev firm (spec 2026-10-14, Pinned archetypes). Hand-checked 2026-10-14.
+# The job has been paused for 2 days, so every backed-up mailbox is stale; the 11th user has no Veeam row; the shared
+# front-desk mailbox (a disabled account Veeam lists) was never backed up. Sam Lowe is disabled but listed by Veeam,
+# so he is counted too.
+operators:
+  - 11th user over the Veeam limit
+  - shared mailbox listed but not backed up
+  - backup job paused for 2 days
+verdicts:
+  app-4.1: {status: backed}
+  app-4.2: {status: unchecked}
+  app-4.3: {status: backed}
+  app-4.4: {status: backed}
+  app-4.5:
+    status: gap
+    entities: &everyone
+      - aisha.rahman@harborpine.example
+      - ben.foster@harborpine.example
+      - carmen.diaz@harborpine.example
+      - dana.whitfield@harborpine.example
+      - elena.kowalski@harborpine.example
+      - eleventh.user@harborpine.example
+      - felix.braun@harborpine.example
+      - front.desk@harborpine.example
+      - george.okafor@harborpine.example
+      - hana.sato@harborpine.example
+      - ivan.petrov@harborpine.example
+      - marcus.chen@harborpine.example
+      - priya.nair@harborpine.example
+      - sam.lowe@harborpine.example
+      - tom.reyes@harborpine.example
+  app-4.6: {status: unchecked}
+  wisp-mfa-all: {status: backed}
+  wisp-mfa-admins: {status: backed}
+  wisp-vpn: {status: unchecked}
+  wisp-edr: {status: backed}
+  wisp-edr-alerts: {status: unchecked}
+  wisp-backup: {status: gap, entities: *everyone}
+  wisp-backup-files: {status: unchecked}
+  wisp-immutable: {status: unchecked}

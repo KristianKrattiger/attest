@@ -1,0 +1,24 @@
+# The re-imaged fleet, on the healed dev firm (spec 2026-10-14, Pinned archetypes). Hand-checked 2026-10-14.
+# HP-LT-01 is re-imaged (its old Defender record, Inactive and 10 days old, sits outside the population), HP-LT-02 is
+# renamed in Defender (still paired by Entra device ID), the printer is Unsupported and only listed, and HP-LT-03 has
+# been off for 8 days: the one gap.
+operators:
+  - laptop re-imaged
+  - device renamed after onboarding
+  - discovered printer
+  - VM off for 8 days
+verdicts:
+  app-4.1: {status: backed}
+  app-4.2: {status: unchecked}
+  app-4.3: {status: backed}
+  app-4.4: {status: gap, entities: [HP-LT-03]}
+  app-4.5: {status: backed}
+  app-4.6: {status: unchecked}
+  wisp-mfa-all: {status: backed}
+  wisp-mfa-admins: {status: backed}
+  wisp-vpn: {status: unchecked}
+  wisp-edr: {status: gap, entities: [HP-LT-03]}
+  wisp-edr-alerts: {status: unchecked}
+  wisp-backup: {status: backed}
+  wisp-backup-files: {status: unchecked}
+  wisp-immutable: {status: unchecked}
