@@ -118,9 +118,21 @@ def test_a_capture_holding_an_address_glued_to_a_word_is_refused_and_nothing_is_
 
 
 def test_an_address_glued_to_a_word_is_scrubbed_once_it_is_passed_with_also_as_the_refusal_names_it(tmp_path):
-    files = {"users.json": b'{"note": "addr2606:4700::1111", "v6": "2606:4700::1111", "x": "a%202606:4700::1111"}'}
+    files = {"users.json": b'{"note": "addr2606:4700::1111", "v6": "2606:4700::1111", "x": "a%202606:4700::1111", '
+                           b'"y": "ip62606:4700::1111", "z": "from ip_2606:4700::1111. Done", "up": "ADDR2606:4700::1111"}'}
     assert _scrub(tmp_path, files, "--also", "2606:4700::1111") == 0
-    assert _written(tmp_path, "users.json") == '{"note": "addrredacted", "v6": "redacted", "x": "a%20redacted"}'
+    assert _written(tmp_path, "users.json") == (
+        '{"note": "addr2001:db8::1", "v6": "2001:db8::1", "x": "a%202001:db8::1", '
+        '"y": "ip62001:db8::1", "z": "from ip_2001:db8::1. Done", "up": "ADDR2001:db8::1"}')
+
+
+def test_an_address_passed_with_also_is_never_matched_inside_a_longer_one():
+    scrubber = Scrubber(TENANT, "Pat Example", "pat@example.net", also=("2606:4700::1", "10.0.0.4"))
+    text = ('{"a": "2606:4700::1111", "b": "2606:4700::1", "c": "2606:4700::1:5", "n": "addr2606:4700::1111", '
+            '"e": "1110.0.0.4", "f": "10.0.0.45", "g": "10.0.0.4.5", "h": "10.0.0.4"}')
+    assert scrubber.scrub(text) == (
+        '{"a": "2001:db8::1", "b": "2001:db8::2", "c": "2001:db8::3", "n": "addr2606:4700::1111", '
+        '"e": "1110.0.0.4", "f": "192.0.2.4", "g": "10.0.0.4.5", "h": "192.0.2.5"}')
 
 
 def test_a_string_that_is_a_valid_address_is_replaced_even_when_it_is_not_one():

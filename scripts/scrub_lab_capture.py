@@ -14,11 +14,13 @@ owner, from --admin-name and --admin-address, is replaced in every form Graph wr
 to "Admin"), the dotted lower-case form such as pat.example, the address and its local part (to lab.admin), and the
 owner's user name in the tenant, from the required --admin-user, to lab.admin too (a whole UPN may be passed: only the
 part before the @ is kept). Each --also VALUE, a repeatable option for anything else the owner spots, such as a phone
-number or a device name, is replaced with "redacted" and denied. Names, name parts, the local part, the user name and
-the tenant label are replaced as whole words only, in any case, so replacing "Pat" leaves "Patch" alone and a user name
-"admin" leaves isAdmin alone; the tenant ID, each --domain and each --also value are replaced wherever they stand,
-inside other words too. A user name or name part that is one of the scrubber's own words (lab, admin, lab.admin,
-redacted, harborlab) cannot be guarded: the guard never reports those words, wherever they stand.
+number or a device name, is replaced with "redacted" and denied; one that is an IP address becomes the documentation
+address that address gets elsewhere, also where a word is glued to it, but never inside a longer address. Names, name
+parts, the local part, the user name and the tenant label are replaced as whole words only, in any case, so replacing
+"Pat" leaves "Patch" alone and a user name "admin" leaves isAdmin alone; the tenant ID, each --domain and each other
+--also value are replaced wherever they stand, inside other words too. A user name or name part that is one of the
+scrubber's own words (lab, admin, lab.admin, redacted, harborlab) cannot be guarded: the guard never reports those
+words, wherever they stand.
 
 The value after "$skiptoken=" (any case, also as %24skiptoken=), up to the next "&", quote, backslash or white space,
 is replaced with REDACTED: Graph builds the token of a paged export's @odata.nextLink from the last record's user
@@ -47,7 +49,8 @@ IP address written with three numbers or more and a denied value of eight charac
 hold by chance. A run that decodes to mostly printable text is checked for any public address and for every denied
 value too. A hit is reported with "(inside base64)". And its net for an IPv6 address is looser: one glued to a letter
 or an underscore (addr2606:4700::1111) or to a percent-escape is reported, though the scrubber leaves it, so the
-capture is refused for the owner to look at; passed with --also as the refusal names it, the address is replaced.
+capture is refused for the owner to look at; passed with --also as the refusal names it, the address becomes its
+documentation address.
 
 Run from the repo root:
   python scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean \\
@@ -183,10 +186,22 @@ def _glued_address_in(run: str) -> tuple[int, int, ipaddress.IPv6Address] | None
     return None
 
 
-def _spans(text: str, loose: bool = False) -> list[tuple[int, int, ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+def _bounded(value: str) -> re.Pattern[str]:
+    """Where an address passed with --also stands, though a word is glued to it, but never inside a longer address.
+
+    An IPv6 address may follow a hex digit, as in ip62606:4700::1111 or a%202606:4700::1111, but not a colon or a dot;
+    nothing that continues an address may follow either, though a sentence's full stop may.
+    """
+    before = r"(?<![\d.])" if isinstance(_ip(value), ipaddress.IPv4Address) else r"(?<![:.])"
+    return re.compile(before + re.escape(value) + r"(?![0-9A-Fa-f:])(?!\.\d)", re.IGNORECASE)
+
+
+def _spans(text: str, loose: bool = False, also: Sequence[re.Pattern[str]] = ()
+           ) -> list[tuple[int, int, ipaddress.IPv4Address | ipaddress.IPv6Address]]:
     """Every valid address in the text, in order: where it starts and ends, and what it is.
 
     With `loose`, an IPv6 address that a word is glued to counts too (_glued_address_in); the scrubber does not ask.
+    Each of `also` finds an address passed with --also (_bounded), wherever it stands.
     """
     found = []
     for run in IPV6_RUN.finditer(text):
@@ -200,6 +215,7 @@ def _spans(text: str, loose: bool = False) -> list[tuple[int, int, ipaddress.IPv
         if hit is not None:
             found.append((run.start() + hit[0], run.start() + hit[1], hit[2]))
     found += [(m.start(), m.end(), ip) for m in IPV4.finditer(text) if (ip := _ip(m.group())) is not None]
+    found += [(m.start(), m.end(), _ip(m.group())) for pattern in also for m in pattern.finditer(text)]
     spans, end = [], 0
     for span in sorted(found, key=lambda s: (s[0], -s[1])):
         if span[0] >= end:  # an IPv4 address inside an IPv6 one (::ffff:1.2.3.4) is part of it
@@ -241,7 +257,9 @@ class Scrubber:
         self._head = [(SKIPTOKEN, SKIPTOKEN_PLACEHOLDER)]
         self._head += [(_word(admin_address), f"lab.admin@{LAB_DOMAIN}")] if admin_address else []
         self._head += [(re.escape(tenant_id), LAB_TENANT_ID)] if tenant_id else []
-        self._head += [(re.escape(value), "redacted") for value in also if value]
+        # An address passed with --also becomes a documentation address, in the pass that maps every other one.
+        self._also = [_bounded(value) for value in also if value and _ip(value) is not None]
+        self._head += [(re.escape(value), "redacted") for value in also if value and _ip(value) is None]
         self._head += [(re.escape(domain), LAB_DOMAIN) for domain in domains if domain]
         if given:
             self._head.append((WORD_START + re.escape(surname[0]) + r"\s*,\s*" + _spaced(given) + WORD_END,
@@ -282,7 +300,7 @@ class Scrubber:
             self._compiled = re.compile(alternatives, re.IGNORECASE)
         text = self._compiled.sub(lambda m: self._replacement[m.lastgroup], text)
         clean, last = [], 0
-        for start, end, ip in _spans(text):
+        for start, end, ip in _spans(text, also=self._also):
             clean += [text[last:start], self._documentation(ip)]
             last = end
         return "".join(clean) + text[last:]
