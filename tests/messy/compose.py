@@ -20,7 +20,7 @@ from pathlib import Path
 from attest.compare import check
 from attest.model import AttestError
 from messy.catalog import COMBINABLE
-from messy.firm import Firm
+from messy.firm import Firm, assemble
 from messy.operators import Operator
 
 Verdicts = dict[str, tuple[str, str, tuple[str, ...]]]  # tag id -> (control.scope, status, sorted entities)
@@ -58,6 +58,12 @@ def run(seed: Firm, ops: Sequence[Operator]) -> Outcome:
     firm, applied, skipped = apply(seed, ops)
     with tempfile.TemporaryDirectory() as tmp:
         return _outcome(firm.write(Path(tmp) / "firm"), applied, skipped)
+
+
+def run_capture(exports: Path) -> Outcome:
+    """The check on a capture exactly as its files were written: encoding, byte-order mark and line endings kept."""
+    with tempfile.TemporaryDirectory() as tmp:
+        return _outcome(assemble(Path(tmp) / "firm", exports), (), ())
 
 
 def violations(outcome: Outcome, seed: Outcome) -> list[str]:
