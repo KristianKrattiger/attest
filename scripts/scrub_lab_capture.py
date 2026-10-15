@@ -17,7 +17,8 @@ part before the @ is kept). Each --also VALUE, a repeatable option for anything 
 number or a device name, is replaced with "redacted" and denied. Names, name parts, the local part, the user name and
 the tenant label are replaced as whole words only, in any case, so replacing "Pat" leaves "Patch" alone and a user name
 "admin" leaves isAdmin alone; the tenant ID, each --domain and each --also value are replaced wherever they stand,
-inside other words too.
+inside other words too. A user name or name part that is one of the scrubber's own words (lab, admin, lab.admin,
+redacted, harborlab) cannot be guarded: the guard never reports those words, wherever they stand.
 
 The value after "$skiptoken=" (any case, also as %24skiptoken=), up to the next "&", quote, backslash or white space,
 is replaced with REDACTED: Graph builds the token of a paged export's @odata.nextLink from the last record's user
