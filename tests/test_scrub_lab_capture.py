@@ -168,6 +168,28 @@ def test_a_local_part_that_is_also_the_given_name_is_the_alias_when_written_as_t
         '{"mailNickname": "lab.admin", "givenName": "Lab"}')
 
 
+def test_the_admins_user_name_is_replaced_as_a_whole_word_in_any_case():
+    scrubber = Scrubber(TENANT, "Pat Example", "pat@example.net", admin_user="admin")
+    text = ('{"upn": "admin@contosolab.onmicrosoft.com", "nick": "Admin", "isAdmin": true, "x": "sysadmin", '
+            '"displayName": "Multifactor authentication for admins accessing Microsoft Admin Portals", '
+            '"includeApplications": ["MicrosoftAdminPortals"]}')
+    clean = scrubber.scrub(text)
+    # A whole word in any case: the policy's name changes, but not the prefix and the app the operator knows it by.
+    assert clean == ('{"upn": "lab.admin@harborlab.example", "nick": "lab.admin", "isAdmin": true, "x": "sysadmin", '
+                     '"displayName": "Multifactor authentication for admins accessing Microsoft lab.admin Portals", '
+                     '"includeApplications": ["MicrosoftAdminPortals"]}')
+    assert "admin" in scrubber.denied
+    assert leaks(clean, scrubber.denied) == []
+
+
+def test_the_admin_user_option_is_replaced_and_denied(tmp_path):
+    text = '{"upn": "rquill@contosolab.onmicrosoft.com", "mailNickname": "RQuill", "note": "rquills"}'
+    assert _scrub(tmp_path, {"users.json": text.encode("utf-8")}, "--admin-user", "rquill") == 0
+    assert _written(tmp_path, "users.json") == (
+        '{"upn": "lab.admin@harborlab.example", "mailNickname": "lab.admin", "note": "rquills"}')
+    assert "rquill" in (tmp_path / "deny.txt").read_text(encoding="utf-8").splitlines()
+
+
 def test_a_name_part_shorter_than_three_characters_is_left_alone():
     scrubber = Scrubber(TENANT, "Jo Q Lee", "jlee@example.net")
     assert scrubber.scrub('"Jo Q Lee", "Lee, Jo Q", "Q", "Jo"') == '"Lab Admin", "Admin, Lab", "Q", "Jo"'

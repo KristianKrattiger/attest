@@ -192,18 +192,21 @@ limitations). This settles the strategy register's next step 1.
 
 Scrub both captures into `firm/lab/` (the values you pass are added to the gitignored `firm/lab/raw/deny.txt`). The
 scrubber knows only what you pass it, so first look for what it cannot learn. `--admin-address` is the address you
-signed up with, and your user name in the tenant is caught only when it equals that address's local part, a name part
-or the dotted form of your name: a "Robin Quill" who signed up as `robinquill@...` and whose UPN is `rquill@...` keeps
-`rquill`. So, before you scrub, open your own `principal` object in `role-assignments.json` (`$expand=principal`
-returns your whole user object, possibly with `businessPhones`, `mobilePhone` and `otherMails`) and the `vmMetadata` of
-the machines in `defender-machines.json` (it may carry a `subscriptionId` and a `resourceId`; an Azure subscription ID
-resolves back to the tenant with an unauthenticated call to Azure Resource Manager). Pass `--also <value>` for each of
-your UPN user name, every phone number and other address found there, and the Azure subscription ID, and for anything
-else that names you or the tenant, such as a device name. The option is repeatable.
+signed up with, and `--admin-user` is your user name in the tenant, the part of your UPN before the @: a "Robin Quill"
+who signed up as `robinquill@...` and whose UPN is `rquill@...` passes `--admin-user rquill`. Pass it every time, even
+when it is the address's local part. It is replaced with `lab.admin` as a whole word in any case, so a user name of
+`admin`, common at sign-up, leaves `isAdmin` and `MicrosoftAdminPortals` alone. Then, before you scrub, open your own
+`principal` object in `role-assignments.json` (`$expand=principal` returns your whole user object, possibly with
+`businessPhones`, `mobilePhone` and `otherMails`) and the `vmMetadata` of the machines in `defender-machines.json` (it
+may carry a `subscriptionId` and a `resourceId`; an Azure subscription ID resolves back to the tenant with an
+unauthenticated call to Azure Resource Manager). Pass `--also <value>` for each phone number and other address found
+there, and the Azure subscription ID, and for anything else that names you or the tenant, such as a device name. The
+option is repeatable. It replaces its value wherever it stands, inside other words too, so never pass it your user
+name or another common word.
 
 ```bash
-venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean --tenant-id <tenant ID> --admin-name "<your display name>" --admin-address <the address you signed up with> --also <your UPN user name> --also <subscription ID>
-venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean-ps51 firm/lab/seed-clean-ps51 --tenant-id <tenant ID> --admin-name "<your display name>" --admin-address <the address you signed up with> --also <your UPN user name> --also <subscription ID>
+venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean --tenant-id <tenant ID> --admin-name "<your display name>" --admin-address <the address you signed up with> --admin-user <your UPN user name> --also <subscription ID>
+venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean-ps51 firm/lab/seed-clean-ps51 --tenant-id <tenant ID> --admin-name "<your display name>" --admin-address <the address you signed up with> --admin-user <your UPN user name> --also <subscription ID>
 ```
 
 A capture that still holds a value the scrubber knows to deny is refused and nothing is written.

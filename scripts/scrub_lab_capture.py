@@ -11,11 +11,12 @@ is replaced, with harborlab; and the --tenant-id. The label is replaced as a who
 a DNS label (contosolab.sharepoint.com, contosolab-admin.sharepoint.com, but also a URL path or a display name). The
 owner, from --admin-name and --admin-address, is replaced in every form Graph writes: the full name (to "Lab Admin"),
 "Surname, Given" (to "Admin, Lab"), each name part of three or more characters (the given names to "Lab", the surname
-to "Admin"), the dotted lower-case form such as pat.example, the address and its local part (to lab.admin). Each
---also VALUE, a repeatable option for anything else the owner spots, such as a phone number or a device name, is
-replaced with "redacted" and denied. Names, name parts, the local part and the tenant label are replaced as whole
-words only, in any case, so replacing "Pat" leaves "Patch" alone; the tenant ID, each --domain and each --also value
-are replaced wherever they stand.
+to "Admin"), the dotted lower-case form such as pat.example, the address and its local part (to lab.admin), and the
+owner's user name in the tenant, from --admin-user, when it is not that local part (to lab.admin too). Each --also
+VALUE, a repeatable option for anything else the owner spots, such as a phone number or a device name, is replaced
+with "redacted" and denied. Names, name parts, the local part, the user name and the tenant label are replaced as whole
+words only, in any case, so replacing "Pat" leaves "Patch" alone and a user name "admin" leaves isAdmin alone; the
+tenant ID, each --domain and each --also value are replaced wherever they stand, inside other words too.
 
 The value after "$skiptoken=" (any case, also as %24skiptoken=), up to the next "&", quote, backslash or white space,
 is replaced with REDACTED: Graph builds the token of a paged export's @odata.nextLink from the last record's user
@@ -47,7 +48,7 @@ refused for the owner to look at.
 Run from the repo root:
   python scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean \\
       --tenant-id <tenant GUID> --admin-name "<your name>" --admin-address <your sign-up address> \\
-      [--domain <custom domain>] [--also <anything else to replace>]
+      --admin-user <your UPN user name> [--domain <custom domain>] [--also <anything else to replace>]
 """
 from __future__ import annotations
 
@@ -216,14 +217,15 @@ class Scrubber:
     """Replaces what names the tenant or its owner; one address always becomes the same documentation address."""
 
     def __init__(self, tenant_id: str, admin_name: str, admin_address: str, domains: Sequence[str] = (),
-                 also: Sequence[str] = ()):
+                 also: Sequence[str] = (), admin_user: str = ""):
         parts = admin_name.split()
         given, surname = parts[:-1], parts[-1:]
         local = admin_address.partition("@")[0] if "@" in admin_address else ""
+        aliases = [alias for alias in dict.fromkeys((local, admin_user)) if alias]
         names = [part for part in dict.fromkeys(parts) if len(part) >= 3] if len(parts) > 1 else []
         surname_first = f"{surname[0]}, {' '.join(given)}" if given else ""
         dotted = ".".join(parts).lower() if len(parts) > 1 else ""
-        self._denied = [v for v in (tenant_id, admin_name, admin_address, local, *names, surname_first, dotted,
+        self._denied = [v for v in (tenant_id, admin_name, admin_address, *aliases, *names, surname_first, dotted,
                                     *domains, *also) if v]
         self._head = [(SKIPTOKEN, SKIPTOKEN_PLACEHOLDER)]
         self._head += [(_word(admin_address), f"lab.admin@{LAB_DOMAIN}")] if admin_address else []
@@ -237,11 +239,11 @@ class Scrubber:
             self._head.append((WORD_START + _spaced(parts) + WORD_END, "Lab Admin"))
         if dotted:
             self._head.append((WORD_START + r"\.".join(re.escape(p) for p in parts) + WORD_END, "lab.admin"))
-        if local:  # as written, the local part is the alias, even where it is also the given name
-            self._head.append((f"(?-i:{_word(local)})", "lab.admin"))
+        # As written, the local part and the user name are the alias, even where one is also the given name.
+        self._head += [(f"(?-i:{_word(alias)})", "lab.admin") for alias in aliases]
         self._head.append((ONMICROSOFT, LAB_DOMAIN))
         self._tail = [(_word(part), "Lab" if part in given else "Admin") for part in names]
-        self._tail += [(_word(local), "lab.admin")] if local else []
+        self._tail += [(_word(alias), "lab.admin") for alias in aliases]
         self.labels: list[str] = []
         self.addresses: dict[ipaddress.IPv4Address | ipaddress.IPv6Address, str] = {}
         self._compiled: re.Pattern[str] | None = None
@@ -429,6 +431,8 @@ def main(argv: list[str] | None = None, deny_file: Path = DENY) -> int:
     parser.add_argument("--tenant-id", required=True)
     parser.add_argument("--admin-name", required=True)
     parser.add_argument("--admin-address", required=True)
+    parser.add_argument("--admin-user", default="", metavar="NAME",
+                        help="your user name in the tenant, the part of your UPN before the @")
     parser.add_argument("--domain", action="append", default=[], help="a custom domain the tenant uses")
     parser.add_argument("--also", action="append", default=[], metavar="VALUE",
                         help="anything else to replace with 'redacted' and deny; repeat for each value")
@@ -436,7 +440,8 @@ def main(argv: list[str] | None = None, deny_file: Path = DENY) -> int:
     if args.out.exists():
         print(f"{args.out} already exists; remove it first", file=sys.stderr)
         return 2
-    scrubber = Scrubber(args.tenant_id, args.admin_name, args.admin_address, tuple(args.domain), tuple(args.also))
+    scrubber = Scrubber(args.tenant_id, args.admin_name, args.admin_address, tuple(args.domain), tuple(args.also),
+                        args.admin_user)
     problems = scrub_capture(args.raw, args.out, scrubber, deny_file)
     for problem in problems:
         print(problem, file=sys.stderr)
