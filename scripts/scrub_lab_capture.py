@@ -42,12 +42,12 @@ folder is removed, so the output never holds a partial copy. Exit status: 0 writ
 already exists.
 
 The guard looks further than the scrubber does. It reads inside base64: every run of 24 or more base64 characters
-(either alphabet, padding optional, percent-escapes undone) is decoded and checked for an onmicrosoft domain and for
-a public IP address written with three numbers or more, which binary does not hold by chance. A run that decodes to
-mostly printable text is checked for any public address and for the denied values too. A hit is reported with
-"(inside base64)". And its net for an IPv6 address is looser: one glued to a letter or an underscore
-(addr2606:4700::1111) or to a percent-escape is reported, though the scrubber leaves it, so the capture is refused for
-the owner to look at; passed with --also as the refusal names it, the address is replaced.
+(either alphabet, padding optional, percent-escapes undone) is decoded and checked for an onmicrosoft domain, a public
+IP address written with three numbers or more and a denied value of eight characters or more, which binary does not
+hold by chance. A run that decodes to mostly printable text is checked for any public address and for every denied
+value too. A hit is reported with "(inside base64)". And its net for an IPv6 address is looser: one glued to a letter
+or an underscore (addr2606:4700::1111) or to a percent-escape is reported, though the scrubber leaves it, so the
+capture is refused for the owner to look at; passed with --also as the refusal names it, the address is replaced.
 
 Run from the repo root:
   python scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean \\
@@ -107,6 +107,7 @@ SKIPTOKEN_PLACEHOLDER = "REDACTED"
 BASE64_MIN = 24
 BASE64_RUN = re.compile(rf"[A-Za-z0-9+/_=-]{{{BASE64_MIN},}}")
 BASE64_PRINTABLE = 0.75  # the share of a decoded token's bytes that must be printable for a denied value in it to count
+BINARY_DENIED_MIN = 8  # unless the value is at least this long, which binary does not hold by chance
 
 
 class Refused(ValueError):
@@ -347,15 +348,15 @@ def _named_in(text: str, deny: Sequence[str], printable: bool = True) -> list[st
     """What in this text, as it stands, could name the tenant or its owner.
 
     Text decoded from base64 that is mostly not printable is searched only for what binary does not hold by chance:
-    an onmicrosoft domain, and an address written with three numbers or more. Random bytes hold a short IPv6 address
-    such as b:: about once in a million, and the ipaddress module calls it global.
+    an onmicrosoft domain, an address written with three numbers or more, and a denied value of eight characters or
+    more. Random bytes hold a short IPv6 address such as b:: about once in a million, and the ipaddress module calls it
+    global; they may hold a short name too.
     """
     found = [f"an onmicrosoft.{tld} domain" for tld in dict.fromkeys(m.group(1).lower()
                                                                       for m in ANY_ONMICROSOFT.finditer(text))]
     found += dict.fromkeys(f"public IP address {text[start:end]}" for start, end, ip in _spans(text, loose=True)
                            if _is_public(ip) and (printable or len(NUMBERS.findall(text, start, end)) >= 3))
-    if not printable:
-        return found
+    deny = deny if printable else [v for v in deny if len(v) >= BINARY_DENIED_MIN]
     own = [(m.start(), m.end()) for m in OWN.finditer(text)]
     return found + [f"denied value {v!r}" for v in deny if v and _stands_outside(v, text, own)]
 

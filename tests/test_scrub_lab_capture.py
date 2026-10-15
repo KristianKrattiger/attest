@@ -354,10 +354,16 @@ def test_the_guard_finds_a_public_address_inside_base64_too():
     assert leaks(f'{{"note": "{token}"}}') == ["public IP address 203.45.67.89 (inside base64)"]
 
 
-def test_a_base64_run_of_mostly_binary_is_checked_for_a_domain_and_an_address_but_not_for_denied_values():
+def test_a_base64_run_of_mostly_binary_is_checked_for_a_domain_and_an_address():
     noise = base64.b64encode(bytes(range(0x80, 0xC0)) + b"a@contosolab.onmicrosoft.com from 203.45.67.89")
-    assert leaks(f'{{"blob": "{noise.decode("ascii")}"}}', ["contosolab"]) == [
+    assert leaks(f'{{"blob": "{noise.decode("ascii")}"}}') == [
         "an onmicrosoft.com domain (inside base64)", "public IP address 203.45.67.89 (inside base64)"]
+
+
+@pytest.mark.parametrize("value", ["rquill@harborpine-cpa.com", TENANT, "Robin Quill", "rquill12"])
+def test_a_denied_value_of_eight_characters_or_more_counts_inside_base64_of_mostly_binary(value):
+    noise = base64.b64encode(bytes(range(0x80, 0xC0)) + f"DSpt:{value})User".encode("ascii")).decode("ascii")
+    assert leaks(f'{{"blob": "{noise}"}}', [value]) == [f"denied value {value!r} (inside base64)"]
 
 
 def test_the_guard_finds_a_domain_in_a_skiptoken_just_under_the_printable_share_it_once_asked_of_every_run():
@@ -367,11 +373,12 @@ def test_the_guard_finds_a_domain_in_a_skiptoken_just_under_the_printable_share_
     assert leaks(PAGED % token) == ["an onmicrosoft.com domain (inside base64)"]
 
 
-def test_a_denied_value_counts_inside_base64_only_where_the_run_decodes_to_mostly_printable_text():
-    noise = base64.b64encode(bytes(range(0x80, 0xC0)) + b"signed in as Pat").decode("ascii")
-    assert leaks(f'{{"blob": "{noise}"}}', ["Pat"]) == []
-    mostly_text = base64.b64encode(bytes(range(0x80, 0x84)) + b"signed in as Pat").decode("ascii")
-    assert leaks(f'{{"blob": "{mostly_text}"}}', ["Pat"]) == ["denied value 'Pat' (inside base64)"]
+@pytest.mark.parametrize("value", ["Pat", "rquill1"])  # up to seven characters, which binary may hold by chance
+def test_a_short_denied_value_counts_inside_base64_only_where_the_run_decodes_to_mostly_printable_text(value):
+    noise = base64.b64encode(bytes(range(0x80, 0xC0)) + f"signed in as {value}".encode("ascii")).decode("ascii")
+    assert leaks(f'{{"blob": "{noise}"}}', [value]) == []
+    mostly_text = base64.b64encode(bytes(range(0x80, 0x84)) + f"signed in as {value}".encode("ascii")).decode("ascii")
+    assert leaks(f'{{"blob": "{mostly_text}"}}', [value]) == [f"denied value {value!r} (inside base64)"]
 
 
 def test_in_a_base64_run_of_mostly_binary_an_address_counts_only_when_written_with_three_numbers_or_more():
