@@ -1,13 +1,25 @@
 """Nothing committed under firm/lab names the lab tenant or its owner (spec 2026-10-14, Scrubbing and storage)."""
+from pathlib import Path
+
 from messy.firm import LAB
 from scripts.scrub_lab_capture import committed_leaks, read_deny
 
+ARCHETYPES = Path(__file__).parent / "archetypes"
 PLANTED = '{"lastExternalIpAddress": "203.45.67.89", "upn": "a@contosolab.onmicrosoft.com"}'
 
 
 def test_nothing_committed_under_firm_lab_names_the_tenant_or_its_owner():
     # firm/lab/raw/deny.txt is on the machine that took the captures; elsewhere it is absent and the list is empty.
     assert committed_leaks(LAB, read_deny()) == []
+
+
+def test_the_hand_written_truth_files_name_neither_the_tenant_nor_its_owner():
+    # The truth files for the lab seed hold lab entities, and they are committed beside the tests, outside firm/lab.
+    assert committed_leaks(ARCHETYPES, read_deny()) == []
+
+
+def test_a_denied_value_in_a_truth_file_would_be_reported():
+    assert committed_leaks(ARCHETYPES, ["break.glass1"]) != []
 
 
 def test_a_planted_leak_is_reported_and_the_same_content_under_raw_is_not(tmp_path):

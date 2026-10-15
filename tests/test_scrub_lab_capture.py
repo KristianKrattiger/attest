@@ -1,3 +1,6 @@
+import base64
+import time
+
 import pytest
 
 from scripts.scrub_lab_capture import Scrubber, decode, leaks, main
@@ -94,6 +97,21 @@ NOT_ADDRESSES = [
 def test_a_version_a_time_a_mac_a_guid_or_a_bare_colon_pair_is_not_an_address(text):
     assert leaks(text) == []
     assert _scrubber().scrub(text) == text
+
+
+GLUED_ADDRESSES = ["addr2606:4700::1111", "ip62606:4700::1111", "ip_2606:4700::1111", "a%202606:4700::1111"]
+
+
+@pytest.mark.parametrize("text", GLUED_ADDRESSES)
+def test_an_address_glued_to_a_letter_an_underscore_or_a_percent_escape_is_flagged_by_the_guard_only(text):
+    assert leaks(text) == ["public IP address 2606:4700::1111"]
+    assert _scrubber().scrub(text) == text  # not an address the scrubber can tell from a word: the guard refuses
+
+
+def test_a_capture_holding_an_address_glued_to_a_word_is_refused_and_nothing_is_written(tmp_path, capsys):
+    assert _scrub(tmp_path, {"users.json": b'{"note": "addr2606:4700::1111"}'}) == 1
+    assert "users.json: public IP address 2606:4700::1111" in capsys.readouterr().err
+    assert _nothing_but(tmp_path, "raw", "deny.txt")
 
 
 def test_a_string_that_is_a_valid_address_is_replaced_even_when_it_is_not_one():
@@ -215,6 +233,92 @@ def test_leaks_name_onmicrosoft_public_addresses_and_denied_values():
                                   "contosolab.mail.onmicrosoft.com", "x@fabrikam.onmicrosoft.us"])
 def test_leaks_name_every_onmicrosoft_domain_form(text):
     assert leaks(text)[0].startswith("an onmicrosoft.")
+
+
+GUID = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+PAGED = '{"@odata.nextLink": "https://graph.microsoft.com/v1.0/users?$top=5&$skiptoken=%s", "value": []}'
+
+
+def _token(encode=base64.b64encode, padded=True):
+    """What Graph puts after $skiptoken=: a binary header, then the page's last user principal name and ID."""
+    raw = b"\xfb\xff\xfe" + f"DSptABC:Pat.Example@contosolab.onmicrosoft.com)User_{GUID}".encode("ascii")
+    token = encode(raw).decode("ascii")
+    return token if padded else token.rstrip("=")
+
+
+SKIPTOKENS = [
+    ('"u?$top=5&$skiptoken=abc123"', '"u?$top=5&$skiptoken=REDACTED"'),
+    ("u?$skiptoken=abc123&$top=5", "u?$skiptoken=REDACTED&$top=5"),
+    ("u?$SkipToken=abc123==", "u?$SkipToken=REDACTED"),
+    ("u?%24skiptoken=abc%2B123", "u?%24skiptoken=REDACTED"),
+    ('"u?$skiptoken=abc-_123\\" tail"', '"u?$skiptoken=REDACTED\\" tail"'),
+    ("u?$skiptoken=abc 123", "u?$skiptoken=REDACTED 123"),
+    ("u?$skiptoken=", "u?$skiptoken="),
+    ("u?skiptoken=abc123 and $skip=5", "u?skiptoken=abc123 and $skip=5"),
+]
+
+
+@pytest.mark.parametrize("text, expected", SKIPTOKENS)
+def test_the_value_after_a_skiptoken_is_replaced_with_a_placeholder(text, expected):
+    assert _scrubber().scrub(text) == expected
+
+
+def test_a_paged_users_export_is_scrubbed_of_the_address_its_skiptoken_holds_and_the_guard_saw_it_before():
+    text = PAGED % _token()
+    assert leaks(text) == ["an onmicrosoft.com domain (inside base64)"]
+    assert leaks(text, ["Pat"]) == ["an onmicrosoft.com domain (inside base64)", "denied value 'Pat' (inside base64)"]
+    clean = _scrubber().scrub(text)
+    assert clean == PAGED % "REDACTED"
+    assert leaks(clean, _scrubber().denied) == []
+
+
+def test_a_capture_with_a_paged_users_export_keeps_its_next_link_and_loses_the_token(tmp_path):
+    assert _scrub(tmp_path, {"users.json": (PAGED % _token()).encode("utf-8")}) == 0
+    assert _written(tmp_path, "users.json") == PAGED % "REDACTED"
+
+
+@pytest.mark.parametrize("encode", [base64.b64encode, base64.urlsafe_b64encode])
+@pytest.mark.parametrize("padded", [True, False])
+@pytest.mark.parametrize("form", ["x?$skiptoken=%s", '{"state": "%s"}', "x?$skiptoken=%s&$top=5"])
+def test_the_guard_reads_base64_in_either_alphabet_with_or_without_padding(encode, padded, form):
+    assert leaks(form % _token(encode, padded)) == ["an onmicrosoft.com domain (inside base64)"]
+
+
+def test_the_two_base64_alphabets_differ_in_the_token_the_tests_use():
+    assert {"+", "/"} <= set(_token(base64.b64encode)) and {"-", "_"} <= set(_token(base64.urlsafe_b64encode))
+
+
+def test_the_guard_reads_a_token_whose_plus_and_slash_are_percent_encoded():
+    token = _token().replace("+", "%2B").replace("/", "%2F")
+    assert "%2B" in token and leaks(f"x?$skiptoken={token}") == ["an onmicrosoft.com domain (inside base64)"]
+
+
+def test_the_guard_finds_a_public_address_inside_base64_too():
+    token = base64.b64encode(b"Sign-in from 203.45.67.89 was blocked by policy").decode("ascii")
+    assert leaks(f'{{"note": "{token}"}}') == ["public IP address 203.45.67.89 (inside base64)"]
+
+
+def test_a_base64_run_that_decodes_to_binary_noise_is_not_flagged():
+    text = b"a@contosolab.onmicrosoft.com"
+    noise = base64.b64encode(bytes(range(0x80, 0xC0)) + text).decode("ascii")
+    assert leaks(f'{{"blob": "{noise}"}}', ["contosolab"]) == []
+    mostly_text = base64.b64encode(bytes(range(0x80, 0x84)) + text).decode("ascii")
+    assert leaks(f'{{"blob": "{mostly_text}"}}') == ["an onmicrosoft.com domain (inside base64)"]
+
+
+@pytest.mark.parametrize("text", [
+    '{"id": "0123456789abcdef0123456789abcdef01234567"}', '{"hash": "' + "ABCDEF" * 11 + '"}',
+    '{"name": "mfa-exclusions-group-for-all-users"}', "-" * 40, "=" * 40, "/personal/lab_admin_harborlab_x/Documents",
+])
+def test_a_long_identifier_or_a_line_of_dashes_is_not_flagged(text):
+    assert leaks(text, ["Pat"]) == []
+
+
+def test_the_guard_stays_fast_on_a_file_full_of_the_scrubbers_own_words():
+    text = "lab " * 12000
+    started = time.perf_counter()
+    assert leaks(text, ["lab"]) == []
+    assert time.perf_counter() - started < 1.0
 
 
 def test_the_tenant_label_is_learned_from_every_file_and_replaced_wherever_it_appears(tmp_path):

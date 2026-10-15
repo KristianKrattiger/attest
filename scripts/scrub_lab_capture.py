@@ -17,6 +17,10 @@ replaced with "redacted" and denied. Names, name parts, the local part and the t
 words only, in any case, so replacing "Pat" leaves "Patch" alone; the tenant ID, each --domain and each --also value
 are replaced wherever they stand.
 
+The value after "$skiptoken=" (any case, also as %24skiptoken=), up to the next "&", quote, backslash or white space,
+is replaced with REDACTED: Graph builds the token of a paged export's @odata.nextLink from the last record's user
+principal name, base64-encoded, so it names the tenant and the reader needs only the link to be there.
+
 Every IPv4 and IPv6 address is replaced wherever it stands in the text, including before a sentence's full stop and
 inside a CIDR range, a URL or key=value text. Each candidate is checked with the ipaddress module, so a time, a MAC
 address, a GUID, a version string with a part over 255 or of more than three digits, and a word such as Cache::get or
@@ -34,6 +38,12 @@ wholly inside a word the scrubber itself wrote (the surname "Example" in harborl
 folder is removed, so the output never holds a partial copy. Exit status: 0 written, 1 refused, 2 the output
 already exists.
 
+The guard looks further than the scrubber does. It reads inside base64: every run of 24 or more base64 characters
+(either alphabet, padding optional, percent-escapes undone) that decodes to mostly printable text is checked as text,
+and a hit is reported with "(inside base64)". And its net for an IPv6 address is looser: one glued to a letter or an
+underscore (addr2606:4700::1111) or to a percent-escape is reported, though the scrubber leaves it, so the capture is
+refused for the owner to look at.
+
 Run from the repo root:
   python scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean \\
       --tenant-id <tenant GUID> --admin-name "<your name>" --admin-address <your sign-up address> \\
@@ -42,6 +52,8 @@ Run from the repo root:
 from __future__ import annotations
 
 import argparse
+import base64
+import bisect
 import ipaddress
 import os
 import re
@@ -49,6 +61,7 @@ import shutil
 import sys
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 DENY = ROOT / "firm" / "lab" / "raw" / "deny.txt"
@@ -81,6 +94,13 @@ HEX = re.compile(r"[0-9A-Fa-f]")
 GLUED = re.compile(r"[G-Zg-z_]")
 IPV4 = re.compile(r"(?<!\d)(?<!\d\.)\d{1,3}(?:\.\d{1,3}){3}(?!\d)(?!\.\d)")
 IPV6_RUN = re.compile(r"[0-9A-Fa-f:.]+")
+# The value of a paged export's token: Graph builds it from the last record's user principal name. It runs to the next
+# "&", quote, backslash (an escaped quote) or white space, and the equals sign before it stays where it is.
+SKIPTOKEN = r'(?:(?<=\$skiptoken=)|(?<=%24skiptoken=))[^&"\\\s]+'
+SKIPTOKEN_PLACEHOLDER = "REDACTED"
+BASE64_MIN = 24
+BASE64_RUN = re.compile(rf"[A-Za-z0-9+/_=-]{{{BASE64_MIN},}}")
+BASE64_PRINTABLE = 0.75  # the share of a decoded token's bytes that must be printable for it to count as text
 
 
 class Refused(ValueError):
@@ -136,15 +156,36 @@ def _address_in(run: str, before: str = "", after: str = "") -> tuple[int, int, 
     return None
 
 
-def _spans(text: str) -> list[tuple[int, int, ipaddress.IPv4Address | ipaddress.IPv6Address]]:
-    """Every valid address in the text, in order: where it starts and ends, and what it is."""
+def _glued_address_in(run: str) -> tuple[int, int, ipaddress.IPv6Address] | None:
+    """The IPv6 address in a run of at least three groups that _address_in refused for what stands against it.
+
+    This is the guard's net. A letter or an underscore against the run is ignored (addr2606:4700::1111,
+    ip_2606:4700::1111), and so are up to two leading hex characters (ip62606:4700::1111, or the 20 of a %20 before the
+    address).
+    """
+    if sum(1 for group in run.split(":") if group) < 3:
+        return None
+    for dropped in range(3):
+        if (hit := _address_in(run[dropped:])) is not None:
+            return hit[0] + dropped, hit[1] + dropped, hit[2]
+    return None
+
+
+def _spans(text: str, loose: bool = False) -> list[tuple[int, int, ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+    """Every valid address in the text, in order: where it starts and ends, and what it is.
+
+    With `loose`, an IPv6 address that a word is glued to counts too (_glued_address_in); the scrubber does not ask.
+    """
     found = []
     for run in IPV6_RUN.finditer(text):
         if ":" not in run.group():
             continue
         before = text[run.start() - 1] if run.start() else ""
         after = text[run.end()] if run.end() < len(text) else ""
-        if (hit := _address_in(run.group(), before, after)) is not None:
+        hit = _address_in(run.group(), before, after)
+        if hit is None and loose:
+            hit = _glued_address_in(run.group())
+        if hit is not None:
             found.append((run.start() + hit[0], run.start() + hit[1], hit[2]))
     found += [(m.start(), m.end(), ip) for m in IPV4.finditer(text) if (ip := _ip(m.group())) is not None]
     spans, end = [], 0
@@ -184,7 +225,8 @@ class Scrubber:
         dotted = ".".join(parts).lower() if len(parts) > 1 else ""
         self._denied = [v for v in (tenant_id, admin_name, admin_address, local, *names, surname_first, dotted,
                                     *domains, *also) if v]
-        self._head = [(_word(admin_address), f"lab.admin@{LAB_DOMAIN}")] if admin_address else []
+        self._head = [(SKIPTOKEN, SKIPTOKEN_PLACEHOLDER)]
+        self._head += [(_word(admin_address), f"lab.admin@{LAB_DOMAIN}")] if admin_address else []
         self._head += [(re.escape(tenant_id), LAB_TENANT_ID)] if tenant_id else []
         self._head += [(re.escape(value), "redacted") for value in also if value]
         self._head += [(re.escape(domain), LAB_DOMAIN) for domain in domains if domain]
@@ -247,18 +289,62 @@ class Scrubber:
 
 
 def _stands_outside(value: str, text: str, spans: Sequence[tuple[int, int]]) -> bool:
-    """Whether the value stands as a whole word somewhere other than wholly inside one of these spans of the text."""
-    return any(not any(a <= m.start() and m.end() <= b for a, b in spans)
-               for m in re.finditer(_word(value), text, re.IGNORECASE))
+    """Whether the value stands as a whole word somewhere other than wholly inside one of these spans of the text.
+
+    The spans are in order and do not overlap, so the only one that can hold a match is the last to start at or
+    before it.
+    """
+    starts = [a for a, _ in spans]
+    for m in re.finditer(_word(value), text, re.IGNORECASE):
+        i = bisect.bisect_right(starts, m.start()) - 1
+        if i < 0 or spans[i][1] < m.end():
+            return True
+    return False
+
+
+def _decoded(token: str) -> str | None:
+    """The text a base64 token holds, in either alphabet and with or without padding.
+
+    None when the token is too short, is not base64, or decodes mostly to bytes that are not printable.
+    """
+    if len(token) < BASE64_MIN:
+        return None
+    token = token.replace("-", "+").replace("_", "/")
+    token = token[:-1] if len(token) % 4 == 1 else token + "=" * (-len(token) % 4)
+    try:
+        raw = base64.b64decode(token, validate=True)
+    except ValueError:
+        return None
+    printable = sum(0x20 <= byte < 0x7F or byte in (9, 10, 13) for byte in raw)
+    return raw.decode("utf-8", errors="replace") if printable >= BASE64_PRINTABLE * len(raw) else None
+
+
+def _base64_texts(text: str) -> list[str]:
+    """The text inside every run of base64 characters in this text, as it stands and with percent-escapes undone."""
+    sources = [text]
+    if "%" in text and (unquoted := unquote(text)) != text:
+        sources.append(unquoted)
+    return [decoded for source in sources for run in BASE64_RUN.finditer(source)
+            for token in re.split("=+", run.group())  # padding is optional, so an equals sign ends a token
+            if (decoded := _decoded(token)) is not None]
+
+
+def _named_in(text: str, deny: Sequence[str]) -> list[str]:
+    """What in this text, as it stands, could name the tenant or its owner."""
+    found = [f"an onmicrosoft.{tld} domain" for tld in dict.fromkeys(m.group(1).lower()
+                                                                      for m in ANY_ONMICROSOFT.finditer(text))]
+    found += dict.fromkeys(f"public IP address {text[start:end]}"
+                           for start, end, ip in _spans(text, loose=True) if _is_public(ip))
+    own = [(m.start(), m.end()) for m in OWN.finditer(text)]
+    return found + [f"denied value {v!r}" for v in deny if v and _stands_outside(v, text, own)]
 
 
 def leaks(text: str, deny: Iterable[str] = ()) -> list[str]:
-    """What in this text could name the tenant or its owner."""
-    found = [f"an onmicrosoft.{tld} domain" for tld in dict.fromkeys(m.group(1).lower()
-                                                                      for m in ANY_ONMICROSOFT.finditer(text))]
-    found += dict.fromkeys(f"public IP address {text[start:end]}" for start, end, ip in _spans(text) if _is_public(ip))
-    own = [(m.start(), m.end()) for m in OWN.finditer(text)]
-    return found + [f"denied value {v!r}" for v in deny if v and _stands_outside(v, text, own)]
+    """What in this text could name the tenant or its owner, including what base64 in it holds."""
+    deny = list(deny)
+    inside = dict.fromkeys(f"{leak} (inside base64)" for decoded in _base64_texts(text)
+                           for leak in _named_in(decoded, deny))
+    return [*_named_in(text, deny), *inside]
 
 
 def read_deny(path: Path = DENY) -> list[str]:
