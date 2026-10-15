@@ -138,7 +138,8 @@ class Tally:
             self.stops[re.sub(r"rows? \d+( and \d+)?", "row N", outcome.stopped)] += 1
         for op in outcome.applied:
             if op.effect == "holds":
-                self.applied[op.name] += 1
+                # Only a run that finished is counted; adding 0 for one that stopped still gives the operator its row.
+                self.applied[op.name] += 0 if outcome.stopped else 1
         for name, statuses in degraded(outcome, seed).items():
             self.degraded[name] += 1
             self.drops[name].update(statuses)
@@ -158,8 +159,10 @@ class Tally:
         lines += ["", '## Noise cost of "holds" operators', "",
                   "A run counts against an operator when a scope it declares left the seed's status while it was "
                   'applied and no applied "breaks" operator breaks that scope. Every "holds" operator applied in '
-                  "that run with the same scope is charged.", "",
-                  "| Operator | Runs applied | Runs degraded | Degraded to |", "|---|---|---|---|"]
+                  "that run with the same scope is charged. Runs that stopped are not counted, because they give no "
+                  'verdict to degrade. "Degraded to" counts, for each status, the runs in which one of the '
+                  "operator's scopes reached it; a run can reach two statuses.", "",
+                  "| Operator | Runs applied and finished | Runs degraded | Degraded to |", "|---|---|---|---|"]
         for name in sorted(self.applied):
             to = ", ".join(f"{status} {n}" for status, n in sorted(self.drops.get(name, Counter()).items())) or "-"
             lines.append(f"| {name} | {self.applied[name]} | {self.degraded[name]} | {to} |")
