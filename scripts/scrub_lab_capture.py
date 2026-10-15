@@ -40,10 +40,12 @@ folder is removed, so the output never holds a partial copy. Exit status: 0 writ
 already exists.
 
 The guard looks further than the scrubber does. It reads inside base64: every run of 24 or more base64 characters
-(either alphabet, padding optional, percent-escapes undone) that decodes to mostly printable text is checked as text,
-and a hit is reported with "(inside base64)". And its net for an IPv6 address is looser: one glued to a letter or an
-underscore (addr2606:4700::1111) or to a percent-escape is reported, though the scrubber leaves it, so the capture is
-refused for the owner to look at.
+(either alphabet, padding optional, percent-escapes undone) is decoded and checked for an onmicrosoft domain and for
+a public IP address written with three numbers or more, which binary does not hold by chance. A run that decodes to
+mostly printable text is checked for any public address and for the denied values too. A hit is reported with
+"(inside base64)". And its net for an IPv6 address is looser: one glued to a letter or an underscore
+(addr2606:4700::1111) or to a percent-escape is reported, though the scrubber leaves it, so the capture is refused for
+the owner to look at.
 
 Run from the repo root:
   python scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean \\
@@ -92,6 +94,7 @@ ANY_ONMICROSOFT = re.compile(r"(?<![A-Za-z0-9-])[A-Za-z0-9-]+(?:\.mail)?\.onmicr
 # in harborlab.example, an address local part "admin" in lab.admin); one that reaches beyond it is (lab.example).
 OWN = re.compile(WORD_START + r"(?:harborlab(?:\.example)?|lab\.admin|lab|admin|redacted)" + WORD_END, re.IGNORECASE)
 HEX = re.compile(r"[0-9A-Fa-f]")
+NUMBERS = re.compile(r"[0-9A-Fa-f]+")  # the groups of an address as written, and the parts of an IPv4 address in it
 GLUED = re.compile(r"[G-Zg-z_]")
 IPV4 = re.compile(r"(?<!\d)(?<!\d\.)\d{1,3}(?:\.\d{1,3}){3}(?!\d)(?!\.\d)")
 IPV6_RUN = re.compile(r"[0-9A-Fa-f:.]+")
@@ -101,7 +104,7 @@ SKIPTOKEN = r'(?:(?<=\$skiptoken=)|(?<=%24skiptoken=))[^&"\\\s]+'
 SKIPTOKEN_PLACEHOLDER = "REDACTED"
 BASE64_MIN = 24
 BASE64_RUN = re.compile(rf"[A-Za-z0-9+/_=-]{{{BASE64_MIN},}}")
-BASE64_PRINTABLE = 0.75  # the share of a decoded token's bytes that must be printable for it to count as text
+BASE64_PRINTABLE = 0.75  # the share of a decoded token's bytes that must be printable for a denied value in it to count
 
 
 class Refused(ValueError):
@@ -304,10 +307,11 @@ def _stands_outside(value: str, text: str, spans: Sequence[tuple[int, int]]) -> 
     return False
 
 
-def _decoded(token: str) -> str | None:
-    """The text a base64 token holds, in either alphabet and with or without padding.
+def _decoded(token: str) -> tuple[str, bool] | None:
+    """The text a base64 token holds, in either alphabet and with or without padding, and whether it is mostly
+    printable.
 
-    None when the token is too short, is not base64, or decodes mostly to bytes that are not printable.
+    None when the token is too short or is not base64.
     """
     if len(token) < BASE64_MIN:
         return None
@@ -318,11 +322,12 @@ def _decoded(token: str) -> str | None:
     except ValueError:
         return None
     printable = sum(0x20 <= byte < 0x7F or byte in (9, 10, 13) for byte in raw)
-    return raw.decode("utf-8", errors="replace") if printable >= BASE64_PRINTABLE * len(raw) else None
+    return raw.decode("utf-8", errors="replace"), printable >= BASE64_PRINTABLE * len(raw)
 
 
-def _base64_texts(text: str) -> list[str]:
-    """The text inside every run of base64 characters in this text, as it stands and with percent-escapes undone."""
+def _base64_texts(text: str) -> list[tuple[str, bool]]:
+    """The text inside every run of base64 characters in this text, as it stands and with percent-escapes undone,
+    and whether it is mostly printable."""
     sources = [text]
     if "%" in text and (unquoted := unquote(text)) != text:
         sources.append(unquoted)
@@ -331,21 +336,32 @@ def _base64_texts(text: str) -> list[str]:
             if (decoded := _decoded(token)) is not None]
 
 
-def _named_in(text: str, deny: Sequence[str]) -> list[str]:
-    """What in this text, as it stands, could name the tenant or its owner."""
+def _named_in(text: str, deny: Sequence[str], printable: bool = True) -> list[str]:
+    """What in this text, as it stands, could name the tenant or its owner.
+
+    Text decoded from base64 that is mostly not printable is searched only for what binary does not hold by chance:
+    an onmicrosoft domain, and an address written with three numbers or more. Random bytes hold a short IPv6 address
+    such as b:: about once in a million, and the ipaddress module calls it global.
+    """
     found = [f"an onmicrosoft.{tld} domain" for tld in dict.fromkeys(m.group(1).lower()
                                                                       for m in ANY_ONMICROSOFT.finditer(text))]
-    found += dict.fromkeys(f"public IP address {text[start:end]}"
-                           for start, end, ip in _spans(text, loose=True) if _is_public(ip))
+    found += dict.fromkeys(f"public IP address {text[start:end]}" for start, end, ip in _spans(text, loose=True)
+                           if _is_public(ip) and (printable or len(NUMBERS.findall(text, start, end)) >= 3))
+    if not printable:
+        return found
     own = [(m.start(), m.end()) for m in OWN.finditer(text)]
     return found + [f"denied value {v!r}" for v in deny if v and _stands_outside(v, text, own)]
 
 
 def leaks(text: str, deny: Iterable[str] = ()) -> list[str]:
-    """What in this text could name the tenant or its owner, including what base64 in it holds."""
+    """What in this text could name the tenant or its owner, including what base64 in it holds.
+
+    Every run of base64 is searched for what binary does not hold by chance, so the domain in a paged export's token is
+    found even where the binary beside a short user name leaves the run less than mostly printable (_named_in).
+    """
     deny = list(deny)
-    inside = dict.fromkeys(f"{leak} (inside base64)" for decoded in _base64_texts(text)
-                           for leak in _named_in(decoded, deny))
+    inside = dict.fromkeys(f"{leak} (inside base64)" for decoded, printable in _base64_texts(text)
+                           for leak in _named_in(decoded, deny, printable))
     return [*_named_in(text, deny), *inside]
 
 

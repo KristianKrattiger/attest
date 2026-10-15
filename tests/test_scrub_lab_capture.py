@@ -1,5 +1,7 @@
 import base64
+import random
 import time
+import uuid
 
 import pytest
 
@@ -320,12 +322,41 @@ def test_the_guard_finds_a_public_address_inside_base64_too():
     assert leaks(f'{{"note": "{token}"}}') == ["public IP address 203.45.67.89 (inside base64)"]
 
 
-def test_a_base64_run_that_decodes_to_binary_noise_is_not_flagged():
-    text = b"a@contosolab.onmicrosoft.com"
-    noise = base64.b64encode(bytes(range(0x80, 0xC0)) + text).decode("ascii")
-    assert leaks(f'{{"blob": "{noise}"}}', ["contosolab"]) == []
-    mostly_text = base64.b64encode(bytes(range(0x80, 0x84)) + text).decode("ascii")
-    assert leaks(f'{{"blob": "{mostly_text}"}}') == ["an onmicrosoft.com domain (inside base64)"]
+def test_a_base64_run_of_mostly_binary_is_checked_for_a_domain_and_an_address_but_not_for_denied_values():
+    noise = base64.b64encode(bytes(range(0x80, 0xC0)) + b"a@contosolab.onmicrosoft.com from 203.45.67.89")
+    assert leaks(f'{{"blob": "{noise.decode("ascii")}"}}', ["contosolab"]) == [
+        "an onmicrosoft.com domain (inside base64)", "public IP address 203.45.67.89 (inside base64)"]
+
+
+def test_the_guard_finds_a_domain_in_a_skiptoken_just_under_the_printable_share_it_once_asked_of_every_run():
+    raw = bytes(range(0x80, 0x8A)) + b"a@contosolab.onmicrosoft.com"
+    assert 0.70 < 28 / len(raw) < 0.75
+    token = base64.b64encode(raw).decode("ascii")
+    assert leaks(PAGED % token) == ["an onmicrosoft.com domain (inside base64)"]
+
+
+def test_a_denied_value_counts_inside_base64_only_where_the_run_decodes_to_mostly_printable_text():
+    noise = base64.b64encode(bytes(range(0x80, 0xC0)) + b"signed in as Pat").decode("ascii")
+    assert leaks(f'{{"blob": "{noise}"}}', ["Pat"]) == []
+    mostly_text = base64.b64encode(bytes(range(0x80, 0x84)) + b"signed in as Pat").decode("ascii")
+    assert leaks(f'{{"blob": "{mostly_text}"}}', ["Pat"]) == ["denied value 'Pat' (inside base64)"]
+
+
+def test_in_a_base64_run_of_mostly_binary_an_address_counts_only_when_written_with_three_numbers_or_more():
+    noise = bytes(range(0x80, 0xC0))
+    for short in (b"b::", b"::7e", b"3::b"):
+        assert leaks(base64.b64encode(noise + b" " + short + b" ").decode("ascii")) == []
+    full = base64.b64encode(noise + b" 2606:4700::1111 and ::ffff:203.45.67.89").decode("ascii")
+    assert leaks(full) == ["public IP address 2606:4700::1111 (inside base64)",
+                           "public IP address ::ffff:203.45.67.89 (inside base64)"]
+
+
+def test_random_binary_and_identifiers_read_as_base64_hold_no_domain_or_address():
+    rng = random.Random(3)  # these blobs decode to b::, ::3 and f::, which Python's ipaddress calls global
+    runs = [base64.b64encode(rng.randbytes(240)).decode("ascii") for _ in range(1500)]
+    runs += [str(uuid.UUID(int=rng.getrandbits(128))) for _ in range(2000)]
+    runs += [rng.randbytes(20).hex() for _ in range(2000)]
+    assert leaks(" ".join(runs)) == []
 
 
 @pytest.mark.parametrize("text", [
