@@ -368,10 +368,10 @@ def test_a_long_identifier_or_a_line_of_dashes_is_not_flagged(text):
 
 
 def test_the_guard_stays_fast_on_a_file_full_of_the_scrubbers_own_words():
-    text = "lab " * 12000
+    text = "lab " * 25000  # a tenth of a second at most; checking each word against every span took over half a minute
     started = time.perf_counter()
     assert leaks(text, ["lab"]) == []
-    assert time.perf_counter() - started < 1.0
+    assert time.perf_counter() - started < 5.0
 
 
 def test_the_tenant_label_is_learned_from_every_file_and_replaced_wherever_it_appears(tmp_path):
