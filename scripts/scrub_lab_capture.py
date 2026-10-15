@@ -39,9 +39,12 @@ The values replaced are added to firm/lab/raw/deny.txt, which is gitignored with
 guard test (tests/messy/test_lab_guard.py) reads. The scrubbed copy is written to a staging folder beside the output
 and moved into place only when every file was scrubbed and none still holds anything that could name the tenant or its
 owner: an onmicrosoft.com domain, a public IP address, or a value deny.txt lists as a whole word, unless the value lies
-wholly inside a word the scrubber itself wrote (the surname "Example" in harborlab.example). Otherwise the staging
-folder is removed, so the output never holds a partial copy. Exit status: 0 written, 1 refused, 2 the output
-already exists.
+wholly inside a word the scrubber itself wrote (the surname "Example" in harborlab.example). Scrubbing must also be
+inert, since a name may be a word the exports use (a user name "active" is the health status Active): each JSON file
+must hold the same keys before and after, and for every folder holding a manifest.yaml, attest's check, reading the
+raw exports and then the scrubbed ones with firm/dev's text and tags, must stop on both or finish on both with every
+tag's status and number of entities the same. Otherwise the staging folder is removed, so the output never holds a
+partial copy. Exit status: 0 written, 1 refused, 2 the output already exists.
 
 The guard looks further than the scrubber does. It reads inside base64: every run of 24 or more base64 characters
 (either alphabet, padding optional, percent-escapes undone) is decoded and checked for an onmicrosoft domain, a public
@@ -63,16 +66,26 @@ import argparse
 import base64
 import bisect
 import ipaddress
+import json
 import os
 import re
 import shutil
 import sys
+import tempfile
 from collections.abc import Iterable, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Any
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))  # attest, when this file runs as a script
+
+from attest.compare import check
+from attest.model import AttestError
+
 DENY = ROOT / "firm" / "lab" / "raw" / "deny.txt"
+DEV = ROOT / "firm" / "dev"
 LAB_DOMAIN = "harborlab.example"
 LAB_LABEL = "harborlab"
 LAB_TENANT_ID = "11111111-1111-4111-8111-111111111111"
@@ -419,6 +432,67 @@ def committed_leaks(folder: Path, deny: Iterable[str] = ()) -> list[str]:
     return problems
 
 
+def _key_paths(data: Any, path: tuple[str, ...] = ()) -> set[tuple[str, ...]]:
+    """The path to every key in this parsed JSON; the items of a list share one path, marked []."""
+    if isinstance(data, dict):
+        return {(*path, key) for key in data} | {p for key, value in data.items()
+                                                 for p in _key_paths(value, (*path, key))}
+    if isinstance(data, list):
+        return {p for item in data for p in _key_paths(item, (*path, "[]"))}
+    return set()
+
+
+def _keys_kept(name: str, raw: str, clean: str) -> list[str]:
+    """Why the scrubbed copy of this JSON file does not hold the same keys as the raw one, in words; [] when it does."""
+    try:
+        before = _key_paths(json.loads(raw))
+    except json.JSONDecodeError:
+        return [f"{name}: not JSON, so its keys cannot be compared"]
+    try:
+        after = _key_paths(json.loads(clean))
+    except json.JSONDecodeError:
+        return [f"{name}: no longer JSON once scrubbed"]
+    if after == before:
+        return []
+    written = ", ".join(sorted("/".join(path) for path in after - before))
+    return [f"{name}: scrubbing changed its keys" + (f", writing {written}" if written else "")]
+
+
+def _verdicts(exports: Path) -> dict[str, tuple[str, str, int]] | str:
+    """Each tag's scope, status and number of entities in attest's check on these exports, read with firm/dev's text
+    and tags as the messy-firm tests read a capture; the message when the check stops."""
+    with tempfile.TemporaryDirectory() as tmp:
+        firm = Path(tmp) / "firm"
+        shutil.copytree(DEV / "attest", firm / "attest")
+        shutil.copy(DEV / "tags.yaml", firm / "tags.yaml")
+        shutil.copytree(exports, firm / "exports")
+        try:
+            return {tag.id: (f"{tag.control}.{tag.scope}", verdict.status, len(verdict.entities))
+                    for tag, verdict in check(firm)}
+        except AttestError as error:
+            return str(error)
+
+
+def _check_kept(folder: str, raw: Path, clean: Path) -> list[str]:
+    """Why attest's check does not read the scrubbed copy of this exports folder as it reads the raw one, in words;
+    [] when both stop, or both finish with every tag's status and number of entities the same."""
+    before, after = _verdicts(raw), _verdicts(clean)
+    if isinstance(before, str) and isinstance(after, str):
+        return []
+    if isinstance(after, str):
+        return [f"{folder}: the check stops on the scrubbed copy ({after}) but not on the raw one"]
+    if isinstance(before, str):  # the raw message may name the tenant, so it is not repeated
+        return [f"{folder}: the check stops on the raw capture but not on the scrubbed copy"]
+    problems = []
+    for tag, (scope, status, count) in after.items():
+        _, raw_status, raw_count = before[tag]
+        if status != raw_status:
+            problems.append(f"{folder}: tag {tag} ({scope}) comes out {status} scrubbed, {raw_status} raw")
+        elif count != raw_count:
+            problems.append(f"{folder}: tag {tag} ({scope}) names {count} entities scrubbed, {raw_count} raw")
+    return problems
+
+
 def scrub_capture(raw: Path, out: Path, scrubber: Scrubber, deny_file: Path = DENY) -> list[str]:
     """Write the scrubbed copy of raw to out and record the denied values; the problems, when the copy is refused."""
     if not raw.is_dir():
@@ -454,9 +528,15 @@ def scrub_capture(raw: Path, out: Path, scrubber: Scrubber, deny_file: Path = DE
                 problems.append(f"{name}: {error}")
                 break
             problems += [f"{name}: {leak}" for leak in leaks(clean, deny)]
+            if PurePosixPath(name).suffix.lower() == ".json":
+                problems += _keys_kept(name, text, clean)
             dst = staging / name
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(bom + clean.encode(codec))
+        if not problems:  # every file is staged, so the check can read each exports folder of the copy
+            for folder in sorted(PurePosixPath(name).parent.as_posix() for name in captured
+                                 if PurePosixPath(name).name == "manifest.yaml"):
+                problems += _check_kept(folder, raw / folder, staging / folder)
         if not problems:
             if out.exists():
                 raise FileExistsError(f"{out} already exists")

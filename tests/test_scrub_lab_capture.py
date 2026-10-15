@@ -2,11 +2,13 @@ import base64
 import random
 import time
 import uuid
+from pathlib import Path
 
 import pytest
 
 from scripts.scrub_lab_capture import Scrubber, decode, leaks, main
 
+DEV_EXPORTS = Path(__file__).resolve().parents[1] / "firm" / "dev" / "exports"
 TENANT = "9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f"
 ARGS = ["--tenant-id", TENANT, "--admin-name", "Pat Example", "--admin-address", "pat@example.net",
         "--admin-user", "pat"]
@@ -119,7 +121,8 @@ def test_a_capture_holding_an_address_glued_to_a_word_is_refused_and_nothing_is_
 
 def test_an_address_glued_to_a_word_is_scrubbed_once_it_is_passed_with_also_as_the_refusal_names_it(tmp_path):
     files = {"users.json": b'{"note": "addr2606:4700::1111", "v6": "2606:4700::1111", "x": "a%202606:4700::1111", '
-                           b'"y": "ip62606:4700::1111", "z": "from ip_2606:4700::1111. Done", "up": "ADDR2606:4700::1111"}'}
+                           b'"y": "ip62606:4700::1111", "z": "from ip_2606:4700::1111. Done", '
+                           b'"up": "ADDR2606:4700::1111"}'}
     assert _scrub(tmp_path, files, "--also", "2606:4700::1111") == 0
     assert _written(tmp_path, "users.json") == (
         '{"note": "addr2001:db8::1", "v6": "2001:db8::1", "x": "a%202001:db8::1", '
@@ -457,6 +460,53 @@ def test_also_values_are_replaced_with_redacted_and_denied(tmp_path):
         '{"phone": "redacted", "device": "redacted Surface 7", "note": "redacted"}')
     deny = (tmp_path / "deny.txt").read_text(encoding="utf-8").splitlines()
     assert "+1 555 0100" in deny and "fabrikam" in deny
+
+
+def _dev_capture(folder="exports"):
+    """The dev firm's exports, as a capture holding them in this folder."""
+    return {f"{folder}/{path.name}": path.read_bytes() for path in DEV_EXPORTS.iterdir()}
+
+
+def test_a_capture_the_check_reads_the_same_once_scrubbed_is_written(tmp_path):
+    assert _scrub(tmp_path, _dev_capture()) == 0
+
+
+def test_a_scrub_that_changes_how_many_entities_a_tag_names_is_refused_by_tag(tmp_path, capsys):
+    assert _scrub(tmp_path, _dev_capture(), "--admin-user", "active") == 1  # every "healthStatus": "Active"
+    assert "exports: tag app-4.4 (edr.all_endpoints) names 13 entities scrubbed, 1 raw" in capsys.readouterr().err
+    assert _nothing_but(tmp_path, "raw", "deny.txt")
+
+
+def test_a_scrub_that_changes_a_tags_status_is_refused_by_tag(tmp_path, capsys):
+    assert _scrub(tmp_path, _dev_capture("before/exports"), "--admin-user", "enabled") == 1  # every policy's state
+    assert "before/exports: tag app-4.3 (mfa.admins) comes out gap scrubbed, backed raw" in capsys.readouterr().err
+    assert _nothing_but(tmp_path, "raw", "deny.txt")
+
+
+def test_a_scrub_that_makes_the_check_stop_is_refused(tmp_path, capsys):
+    assert _scrub(tmp_path, _dev_capture(), "--admin-user", "entra") == 1  # the manifest's reader entra_users
+    assert "exports: the check stops on the scrubbed copy (manifest.yaml: entry 1 names unknown reader " \
+           "'lab.admin_users') but not on the raw one" in capsys.readouterr().err
+    assert _nothing_but(tmp_path, "raw", "deny.txt")
+
+
+@pytest.mark.parametrize("extra, text, written", [
+    (("--admin-name", "Robin Mail"), b'{"value": [{"mail": "x@example.net"}]}', "value/[]/Admin"),
+    (("--admin-user", "value"), b'{"value": [{"id": "1"}]}', "lab.admin, lab.admin/[]/id"),
+])
+def test_a_scrub_that_changes_a_json_files_keys_is_refused_by_file(tmp_path, capsys, extra, text, written):
+    assert _scrub(tmp_path, {"users.json": text}, *extra) == 1
+    assert f"users.json: scrubbing changed its keys, writing {written}" in capsys.readouterr().err
+    assert _nothing_but(tmp_path, "raw", "deny.txt")
+
+
+def test_a_json_file_that_does_not_parse_or_stops_parsing_once_scrubbed_is_refused(tmp_path, capsys):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    assert _scrub(tmp_path / "a", {"users.json": b'{"a": '}) == 1
+    assert "users.json: not JSON, so its keys cannot be compared" in capsys.readouterr().err
+    assert _scrub(tmp_path / "b", {"users.json": b'{"a": true}'}, "--admin-user", "true") == 1
+    assert "users.json: no longer JSON once scrubbed" in capsys.readouterr().err
 
 
 def test_a_capture_keeps_its_encoding_byte_order_mark_and_line_endings(tmp_path):
