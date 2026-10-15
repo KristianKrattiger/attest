@@ -115,6 +115,22 @@ begins with that title) is replaced, or a new one written in a folder that has
 a `tags.yaml`; any other file is left alone. An unexpected error leaves the
 same stub and shows its traceback.
 
+## Testing against messy firms
+
+`tests/messy/` runs the check on a seed firm made messy by operators, alone
+and in seeded combinations, and judges each run: no scope an operator breaks
+comes out backed, serialization alone changes no verdict, every refusal the
+docs promise happens, and no run stops on data nobody decided to refuse
+(design: `../superpowers/specs/2026-10-14-messy-firm-testing-design.md`). The
+seed is the lab's clean capture, `firm/lab/seed-clean`, once it is committed,
+and the dev firm healed of its planted gaps until then. The default run
+includes 200 combinations. The long run, 5,000 combinations, writes
+`firm/lab/messy-summary.md`:
+
+    venv/Scripts/python.exe -m pytest -m messy
+
+How the lab tenant is built and captured: `lab.md`.
+
 ## Known limitations
 
 - A Conditional Access policy that targets groups (`includeGroups`) can only

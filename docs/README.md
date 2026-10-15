@@ -7,6 +7,7 @@ A conceptual claim is judged on the argument. An engineering claim is judged by 
   - [Running a check](engineering/using.md)
   - [Producing the exports](engineering/exports.md)
   - [Architecture of the check](engineering/architecture.md)
+  - [The lab tenant](engineering/lab.md)
 - [Strategy register](strategy/README.md). Who would pay, the prices, the sequence, and the risks, each written as a bet.
 
 The repository README is the account of what attest is and how a check works.
