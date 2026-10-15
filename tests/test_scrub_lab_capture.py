@@ -69,6 +69,8 @@ ADDRESS_FORMS = [
     ("ip:2606:4700::1111", "ip:2001:db8::1"),
     ("via ::ffff:203.45.67.89 only", "via 2001:db8::1 only"),
     ("full 2606:4700:0:0:0:0:0:1111 form", "full 2001:db8::1 form"),
+    ("v=spf1 ip6:2606:4700::/32 -all", "v=spf1 ip6:2001:db8::1/32 -all"),
+    ("IPv6:2606:4700::1111", "IPv6:2001:db8::1"),
 ]
 
 
@@ -84,6 +86,7 @@ NOT_ADDRESSES = [
     "10.0.22631.4317", "16.0.17928.20114", "v1.2.3.4567", "256.300.1.1", "1.2.3", "09:30:00", "T09:30:00.123Z",
     "2026-10-01T09:30:00Z", "00:1A:2B:3C:4D:5E", "3fa85f64-5717-4562-b3fc-2c963f66afa6", "a bare :: stays",
     "12:30", "see Section 2.4 and 3.1.", "0x2606", "Dead beef: cafe",
+    "Cache::get", "std::string", "[System.String]::Format", "my_dead::beef",
 ]
 
 
@@ -91,6 +94,10 @@ NOT_ADDRESSES = [
 def test_a_version_a_time_a_mac_a_guid_or_a_bare_colon_pair_is_not_an_address(text):
     assert leaks(text) == []
     assert _scrubber().scrub(text) == text
+
+
+def test_a_string_that_is_a_valid_address_is_replaced_even_when_it_is_not_one():
+    assert _scrubber().scrub('"5.0.5.0" "00:1A:2B:FF:FE:3C:4D:5E"') == '"192.0.2.1" "2001:db8::2"'
 
 
 def test_two_spellings_of_one_ipv6_address_map_to_one_documentation_address():
@@ -165,6 +172,38 @@ def test_what_the_scrubber_writes_is_never_reported_as_a_denied_value():
     assert leaks(clean, _scrubber().denied) == []
     admin = Scrubber(TENANT, "Pat Example", "admin@example.net")
     assert leaks(admin.scrub('{"mail": "admin@example.net", "who": "Pat Example"}'), admin.denied) == []
+
+
+def test_scrubbed_output_is_not_flagged_for_a_hyphenated_label_and_an_admin_address():
+    scrubber = Scrubber(TENANT, "Alex Stone", "admin@example.net")
+    text = ('{"mail": "admin@example.net", "s": "https://my-lab.sharepoint.com", "u": "x@my-lab.onmicrosoft.com", '
+            '"n": "Alex Stone", "r": "Stone, Alex"}')
+    clean = scrubber.scrub(text)
+    assert clean == ('{"mail": "lab.admin@harborlab.example", "s": "https://harborlab.sharepoint.com", '
+                     '"u": "x@harborlab.example", "n": "Lab Admin", "r": "Admin, Lab"}')
+    assert {"my-lab", "admin@example.net", "admin", "Stone"} <= set(scrubber.denied)
+    assert leaks(clean, scrubber.denied) == []
+
+
+@pytest.mark.parametrize("value, text", [
+    ("admin@example.net", '{"mail": "admin@example.net"}'),
+    ("my-lab", '{"s": "https://my-lab.sharepoint.com/x"}'),
+    ("lab-pat", '{"n": "lab-pat"}'),
+    ("LAB-PC-01", '{"device": "LAB-PC-01"}'),
+    ("harbor-lab.com", '{"d": "harbor-lab.com"}'),
+    ("admin.contoso.com", '{"d": "admin.contoso.com"}'),
+    ("Example", '{"d": "lab.example"}'),
+    ("Pat", '{"mail": "pat@harborlab.example"}'),
+])
+def test_a_denied_value_that_contains_one_of_the_scrubbers_words_is_still_flagged(value, text):
+    assert leaks(text, [value]) == [f"denied value {value!r}"]
+
+
+def test_a_denied_value_is_flagged_beside_the_scrubbers_own_words_too():
+    scrubber = Scrubber(TENANT, "Alex Stone", "admin@example.net")
+    scrubber.learn('"x@my-lab.onmicrosoft.com"')
+    text = '{"mail": "admin@example.net", "s": "https://my-lab.sharepoint.com", "own": "lab.admin@harborlab.example"}'
+    assert leaks(text, scrubber.denied) == ["denied value 'admin@example.net'", "denied value 'my-lab'"]
 
 
 def test_leaks_name_onmicrosoft_public_addresses_and_denied_values():

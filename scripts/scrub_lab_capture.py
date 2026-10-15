@@ -7,27 +7,32 @@ part of what a PowerShell 5.1 or 7 capture shows. A file that is not UTF-8 or UT
 Every file is scrubbed in one pass, so a replacement is never rewritten by a later rule. Replaced: every
 <label>.onmicrosoft.com, <label>.mail.onmicrosoft.com and .onmicrosoft.us domain, and each --domain, with
 harborlab.example; the tenant label itself, learned from those domains in every file of the capture before anything
-is replaced, wherever it stands as a DNS label (contosolab.sharepoint.com, contosolab-admin.sharepoint.com), with
-harborlab; and the --tenant-id. The owner, from --admin-name and --admin-address, is replaced in every form Graph
-writes: the full name (to "Lab Admin"), "Surname, Given" (to "Admin, Lab"), each name part of three or more characters
-(the given names to "Lab", the surname to "Admin"), the dotted lower-case form such as pat.example, the address and
-its local part (to lab.admin). Each --also VALUE, a repeatable option for anything else the owner spots, such as a
-phone number or a device name, is replaced with "redacted" and denied. Names, name parts, the local part and the
-tenant label are replaced as whole words only, in any case, so replacing "Pat" leaves "Patch" alone; the tenant ID,
-each --domain and each --also value are replaced wherever they stand.
+is replaced, with harborlab; and the --tenant-id. The label is replaced as a whole word wherever it stands, not only as
+a DNS label (contosolab.sharepoint.com, contosolab-admin.sharepoint.com, but also a URL path or a display name). The
+owner, from --admin-name and --admin-address, is replaced in every form Graph writes: the full name (to "Lab Admin"),
+"Surname, Given" (to "Admin, Lab"), each name part of three or more characters (the given names to "Lab", the surname
+to "Admin"), the dotted lower-case form such as pat.example, the address and its local part (to lab.admin). Each
+--also VALUE, a repeatable option for anything else the owner spots, such as a phone number or a device name, is
+replaced with "redacted" and denied. Names, name parts, the local part and the tenant label are replaced as whole
+words only, in any case, so replacing "Pat" leaves "Patch" alone; the tenant ID, each --domain and each --also value
+are replaced wherever they stand.
 
 Every IPv4 and IPv6 address is replaced wherever it stands in the text, including before a sentence's full stop and
 inside a CIDR range, a URL or key=value text. Each candidate is checked with the ipaddress module, so a time, a MAC
-address, a GUID or a version string is left alone. The Nth distinct address becomes a documentation address: for IPv4
-192.0.2.1 to 254, then 198.51.100.1 to 254, then 203.0.113.1 to 254 (a capture with more is refused), and for IPv6
-2001:db8::N. Two spellings of one IPv6 address become one. Random object GUIDs are kept: they identify nothing
-outside the lab.
+address, a GUID, a version string with a part over 255 or of more than three digits, and a word such as Cache::get or
+std::string are left alone. Anything else that is a valid address is replaced even when it is not one, which can only
+over-scrub: a four-part version whose parts are all at most 255 (5.0.5.0), or an eight-octet identifier such as
+00:1A:2B:FF:FE:3C:4D:5E. The Nth distinct address becomes a documentation address: for IPv4 192.0.2.1 to 254, then
+198.51.100.1 to 254, then 203.0.113.1 to 254 (a capture with more is refused), and for IPv6 2001:db8::N. Two spellings
+of one IPv6 address become one. Random object GUIDs are kept: they identify nothing outside the lab.
 
 The values replaced are added to firm/lab/raw/deny.txt, which is gitignored with the rest of raw/ and which the
 guard test (tests/messy/test_lab_guard.py) reads. The scrubbed copy is written to a staging folder beside the output
 and moved into place only when every file was scrubbed and none still holds anything that could name the tenant or its
-owner: an onmicrosoft.com domain, a public IP address, or a value deny.txt lists. Otherwise the staging folder is
-removed, so the output never holds a partial copy. Exit status: 0 written, 1 refused, 2 the output already exists.
+owner: an onmicrosoft.com domain, a public IP address, or a value deny.txt lists as a whole word, unless the value lies
+wholly inside a word the scrubber itself wrote (the surname "Example" in harborlab.example). Otherwise the staging
+folder is removed, so the output never holds a partial copy. Exit status: 0 written, 1 refused, 2 the output
+already exists.
 
 Run from the repo root:
   python scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean \\
@@ -69,10 +74,11 @@ DOMAIN = r"[A-Za-z0-9-]+(?:\.mail)?\.onmicrosoft\.(?:com|us)"
 ONMICROSOFT = _starts("A-Za-z0-9-") + DOMAIN
 LABEL = re.compile(_starts("A-Za-z0-9-") + r"([A-Za-z0-9-]+)(?:\.mail)?\.onmicrosoft\.(?:com|us)", re.IGNORECASE)
 ANY_ONMICROSOFT = re.compile(r"(?<![A-Za-z0-9-])[A-Za-z0-9-]+(?:\.mail)?\.onmicrosoft\.(com|us)", re.IGNORECASE)
-# What the scrubber itself writes; the guard does not count it as a denied value (a surname "Example" is not found in
-# harborlab.example, nor an address "admin@..." in lab.admin).
+# What the scrubber itself writes. A denied value found entirely inside one of these is not a leak (a surname "Example"
+# in harborlab.example, an address local part "admin" in lab.admin); one that reaches beyond it is (lab.example).
 OWN = re.compile(WORD_START + r"(?:harborlab(?:\.example)?|lab\.admin|lab|admin|redacted)" + WORD_END, re.IGNORECASE)
 HEX = re.compile(r"[0-9A-Fa-f]")
+GLUED = re.compile(r"[G-Zg-z_]")
 IPV4 = re.compile(r"(?<!\d)(?<!\d\.)\d{1,3}(?:\.\d{1,3}){3}(?!\d)(?!\.\d)")
 IPV6_RUN = re.compile(r"[0-9A-Fa-f:.]+")
 
@@ -107,15 +113,26 @@ def _is_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return ip.is_global or (mapped is not None and mapped.is_global)
 
 
-def _address_in(run: str) -> tuple[int, int, ipaddress.IPv6Address] | None:
-    """The IPv6 address in a run of hex digits, colons and dots, once sentence punctuation around it is trimmed."""
+def _address_in(run: str, before: str = "", after: str = "") -> tuple[int, int, ipaddress.IPv6Address] | None:
+    """The IPv6 address in a run of hex digits, colons and dots, once sentence punctuation around it is trimmed.
+
+    The characters just before and after the run are given too. An address glued to a letter outside a to f or to an
+    underscore is part of a word (Cache::get, std::string), not an address, unless a one-character label such as the 6
+    of ip6: or IPv6: comes first, in which case the address starts after that label.
+    """
     lead = len(run) - len(run.lstrip(".:"))
     trail = len(run) - len(run.rstrip(".:"))
     cuts = sorted(((a, b) for a in range(min(lead, 3) + 1) for b in range(min(trail, 3) + 1)), key=sum)
     for a, b in cuts:
         piece = run[a:len(run) - b]
+        left, right = (run[a - 1] if a else before), (run[len(run) - b] if b else after)
+        if GLUED.match(left) or GLUED.match(right):
+            continue
         if ":" in piece and HEX.search(piece) and isinstance(ip := _ip(piece), ipaddress.IPv6Address):
             return a, len(run) - b, ip
+    if len(run) > 2 and run[1] == ":" and HEX.match(run[0]) and GLUED.match(before):
+        hit = _address_in(run[2:], ":", after)
+        return None if hit is None else (hit[0] + 2, hit[1] + 2, hit[2])
     return None
 
 
@@ -123,7 +140,11 @@ def _spans(text: str) -> list[tuple[int, int, ipaddress.IPv4Address | ipaddress.
     """Every valid address in the text, in order: where it starts and ends, and what it is."""
     found = []
     for run in IPV6_RUN.finditer(text):
-        if ":" in run.group() and (hit := _address_in(run.group())) is not None:
+        if ":" not in run.group():
+            continue
+        before = text[run.start() - 1] if run.start() else ""
+        after = text[run.end()] if run.end() < len(text) else ""
+        if (hit := _address_in(run.group(), before, after)) is not None:
             found.append((run.start() + hit[0], run.start() + hit[1], hit[2]))
     found += [(m.start(), m.end(), ip) for m in IPV4.finditer(text) if (ip := _ip(m.group())) is not None]
     spans, end = [], 0
@@ -225,13 +246,19 @@ class Scrubber:
         return self.addresses[ip]
 
 
+def _stands_outside(value: str, text: str, spans: Sequence[tuple[int, int]]) -> bool:
+    """Whether the value stands as a whole word somewhere other than wholly inside one of these spans of the text."""
+    return any(not any(a <= m.start() and m.end() <= b for a, b in spans)
+               for m in re.finditer(_word(value), text, re.IGNORECASE))
+
+
 def leaks(text: str, deny: Iterable[str] = ()) -> list[str]:
     """What in this text could name the tenant or its owner."""
     found = [f"an onmicrosoft.{tld} domain" for tld in dict.fromkeys(m.group(1).lower()
                                                                       for m in ANY_ONMICROSOFT.finditer(text))]
     found += dict.fromkeys(f"public IP address {text[start:end]}" for start, end, ip in _spans(text) if _is_public(ip))
-    theirs = OWN.sub("\0", text)
-    return found + [f"denied value {v!r}" for v in deny if v and re.search(_word(v), theirs, re.IGNORECASE)]
+    own = [(m.start(), m.end()) for m in OWN.finditer(text)]
+    return found + [f"denied value {v!r}" for v in deny if v and _stands_outside(v, text, own)]
 
 
 def read_deny(path: Path = DENY) -> list[str]:
