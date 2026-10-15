@@ -215,7 +215,8 @@ A capture that still holds a value the scrubber knows to deny is refused and not
 A capture is refused too when scrubbing would change what attest reads: a JSON file's keys, whether the check stops, or
 a tag's status or number of entities (the refusal names the file or the tag). Then a name you passed is also a word the
 exports use, as a user name `active` is the health status Active. Rename that account or device in the lab tenant, and
-capture again.
+capture again. Delete that word from `firm/lab/raw/deny.txt` first: the refused run already recorded it, so the guard
+would flag it in every capture, and in every committed one.
 
 A capture is refused too when it holds an IPv6 address glued to a word, such as `addr2606:4700::1111`: the scrubber
 cannot tell it from a word and leaves it, and the error names the address (`users.json: public IP address
