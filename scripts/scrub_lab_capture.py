@@ -12,11 +12,12 @@ a DNS label (contosolab.sharepoint.com, contosolab-admin.sharepoint.com, but als
 owner, from --admin-name and --admin-address, is replaced in every form Graph writes: the full name (to "Lab Admin"),
 "Surname, Given" (to "Admin, Lab"), each name part of three or more characters (the given names to "Lab", the surname
 to "Admin"), the dotted lower-case form such as pat.example, the address and its local part (to lab.admin), and the
-owner's user name in the tenant, from --admin-user, when it is not that local part (to lab.admin too). Each --also
-VALUE, a repeatable option for anything else the owner spots, such as a phone number or a device name, is replaced
-with "redacted" and denied. Names, name parts, the local part, the user name and the tenant label are replaced as whole
-words only, in any case, so replacing "Pat" leaves "Patch" alone and a user name "admin" leaves isAdmin alone; the
-tenant ID, each --domain and each --also value are replaced wherever they stand, inside other words too.
+owner's user name in the tenant, from the required --admin-user, to lab.admin too (a whole UPN may be passed: only the
+part before the @ is kept). Each --also VALUE, a repeatable option for anything else the owner spots, such as a phone
+number or a device name, is replaced with "redacted" and denied. Names, name parts, the local part, the user name and
+the tenant label are replaced as whole words only, in any case, so replacing "Pat" leaves "Patch" alone and a user name
+"admin" leaves isAdmin alone; the tenant ID, each --domain and each --also value are replaced wherever they stand,
+inside other words too.
 
 The value after "$skiptoken=" (any case, also as %24skiptoken=), up to the next "&", quote, backslash or white space,
 is replaced with REDACTED: Graph builds the token of a paged export's @odata.nextLink from the last record's user
@@ -127,6 +128,11 @@ def _word(value: str) -> str:
     return WORD_START + re.escape(value) + WORD_END
 
 
+def user_name(value: str) -> str:
+    """The user name in what was passed as one: white space around it dropped, and only the part before an @."""
+    return value.strip().partition("@")[0]
+
+
 def _spaced(tokens: Sequence[str]) -> str:
     """A regular expression for these words with any white space between them."""
     return r"\s+".join(re.escape(token) for token in tokens)
@@ -224,7 +230,7 @@ class Scrubber:
         parts = admin_name.split()
         given, surname = parts[:-1], parts[-1:]
         local = admin_address.partition("@")[0] if "@" in admin_address else ""
-        aliases = [alias for alias in dict.fromkeys((local, admin_user)) if alias]
+        aliases = [alias for alias in dict.fromkeys((local, user_name(admin_user))) if alias]
         names = [part for part in dict.fromkeys(parts) if len(part) >= 3] if len(parts) > 1 else []
         surname_first = f"{surname[0]}, {' '.join(given)}" if given else ""
         dotted = ".".join(parts).lower() if len(parts) > 1 else ""
@@ -447,12 +453,14 @@ def main(argv: list[str] | None = None, deny_file: Path = DENY) -> int:
     parser.add_argument("--tenant-id", required=True)
     parser.add_argument("--admin-name", required=True)
     parser.add_argument("--admin-address", required=True)
-    parser.add_argument("--admin-user", default="", metavar="NAME",
+    parser.add_argument("--admin-user", required=True, metavar="NAME",
                         help="your user name in the tenant, the part of your UPN before the @")
     parser.add_argument("--domain", action="append", default=[], help="a custom domain the tenant uses")
     parser.add_argument("--also", action="append", default=[], metavar="VALUE",
                         help="anything else to replace with 'redacted' and deny; repeat for each value")
     args = parser.parse_args(argv)
+    if not user_name(args.admin_user):
+        parser.error("--admin-user needs your user name, the part of your UPN before the @")
     if args.out.exists():
         print(f"{args.out} already exists; remove it first", file=sys.stderr)
         return 2

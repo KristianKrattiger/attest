@@ -8,7 +8,8 @@ import pytest
 from scripts.scrub_lab_capture import Scrubber, decode, leaks, main
 
 TENANT = "9f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f"
-ARGS = ["--tenant-id", TENANT, "--admin-name", "Pat Example", "--admin-address", "pat@example.net"]
+ARGS = ["--tenant-id", TENANT, "--admin-name", "Pat Example", "--admin-address", "pat@example.net",
+        "--admin-user", "pat"]
 
 
 def _scrubber():
@@ -188,6 +189,31 @@ def test_the_admins_user_name_is_replaced_as_a_whole_word_in_any_case():
                      '"includeApplications": ["MicrosoftAdminPortals"]}')
     assert "admin" in scrubber.denied
     assert leaks(clean, scrubber.denied) == []
+
+
+def test_the_admin_user_option_is_required(tmp_path, capsys):
+    raw = _raw(tmp_path, {"users.json": b'{"mailNickname": "rquill"}'})
+    args = ["--tenant-id", TENANT, "--admin-name", "Robin Quill", "--admin-address", "robinquill@example.net"]
+    with pytest.raises(SystemExit):
+        main([str(raw), str(tmp_path / "out"), *args], deny_file=tmp_path / "deny.txt")
+    assert "--admin-user" in capsys.readouterr().err
+    assert _nothing_but(tmp_path, "raw")
+
+
+@pytest.mark.parametrize("given", ["rquill@contosolab.onmicrosoft.com", "  rquill ", " RQuill@contosolab.onmicrosoft.com"])
+def test_the_admin_user_is_the_part_before_the_at_sign_with_no_white_space(given):
+    scrubber = Scrubber(TENANT, "Robin Quill", "robinquill@example.net", admin_user=given)
+    assert scrubber.scrub('{"upn": "rquill@contosolab.onmicrosoft.com", "mailNickname": "rquill"}') == (
+        '{"upn": "lab.admin@harborlab.example", "mailNickname": "lab.admin"}')
+    assert given.strip().partition("@")[0] in scrubber.denied
+
+
+@pytest.mark.parametrize("given", ["", "   ", "@contosolab.onmicrosoft.com"])
+def test_an_admin_user_with_nothing_before_the_at_sign_is_refused(tmp_path, capsys, given):
+    with pytest.raises(SystemExit):
+        _scrub(tmp_path, {"users.json": b"{}"}, "--admin-user", given)
+    assert "--admin-user" in capsys.readouterr().err
+    assert _nothing_but(tmp_path, "raw")
 
 
 def test_the_admin_user_option_is_replaced_and_denied(tmp_path):
