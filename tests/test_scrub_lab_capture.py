@@ -116,6 +116,12 @@ def test_a_capture_holding_an_address_glued_to_a_word_is_refused_and_nothing_is_
     assert _nothing_but(tmp_path, "raw", "deny.txt")
 
 
+def test_an_address_glued_to_a_word_is_scrubbed_once_it_is_passed_with_also_as_the_refusal_names_it(tmp_path):
+    files = {"users.json": b'{"note": "addr2606:4700::1111", "v6": "2606:4700::1111", "x": "a%202606:4700::1111"}'}
+    assert _scrub(tmp_path, files, "--also", "2606:4700::1111") == 0
+    assert _written(tmp_path, "users.json") == '{"note": "addrredacted", "v6": "redacted", "x": "a%20redacted"}'
+
+
 def test_a_string_that_is_a_valid_address_is_replaced_even_when_it_is_not_one():
     assert _scrubber().scrub('"5.0.5.0" "00:1A:2B:FF:FE:3C:4D:5E"') == '"192.0.2.1" "2001:db8::2"'
 

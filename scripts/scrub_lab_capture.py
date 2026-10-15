@@ -45,7 +45,7 @@ a public IP address written with three numbers or more, which binary does not ho
 mostly printable text is checked for any public address and for the denied values too. A hit is reported with
 "(inside base64)". And its net for an IPv6 address is looser: one glued to a letter or an underscore
 (addr2606:4700::1111) or to a percent-escape is reported, though the scrubber leaves it, so the capture is refused for
-the owner to look at.
+the owner to look at; passed with --also as the refusal names it, the address is replaced.
 
 Run from the repo root:
   python scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean \\

@@ -211,6 +211,11 @@ venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean-ps5
 
 A capture that still holds a value the scrubber knows to deny is refused and nothing is written.
 
+A capture is refused too when it holds an IPv6 address glued to a word, such as `addr2606:4700::1111`: the scrubber
+cannot tell it from a word and leaves it, and the error names the address (`users.json: public IP address
+2606:4700::1111`). Look at where it stands, then scrub again with the address passed as the error gives it:
+`--also 2606:4700::1111`.
+
 Once `firm/lab/seed-clean/exports/manifest.yaml` exists, the messy-firm tests use it as their seed, and the four
 archetype tests fail until you have hand-checked each archetype against it and written its truth file in
 `tests/messy/archetypes/seed-clean/` (the files in `tests/messy/archetypes/dev/` show the form).
