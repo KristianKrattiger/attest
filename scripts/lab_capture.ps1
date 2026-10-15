@@ -4,15 +4,16 @@ Take the lab tenant's exports exactly as docs/engineering/exports.md gives them,
 
 .DESCRIPTION
 One part per run. Run -Part Graph and -Part Defender on the admin machine, in the PowerShell the capture is for
-(pwsh for PowerShell 7, powershell.exe for Windows PowerShell 5.1). Run -Part Veeam on the Veeam server, then copy
-veeam-users.json, veeam-user-properties.json and the manifest line it prints into the same folder.
+(pwsh for PowerShell 7, powershell.exe for Windows PowerShell 5.1). Graph and Defender need -TenantId, the lab
+tenant's ID. Graph signs in to that tenant and refuses to export from any other. Run -Part Veeam on the Veeam server,
+then copy veeam-users.json, veeam-user-properties.json and the manifest line it prints into the same folder.
 
 Each part appends one manifest line per export to <Out>/manifest.yaml, with exported_at taken after that export
-finished, in UTC with a Z (docs/engineering/exports.md, Recording exported_at). The lab procedure is
-docs/engineering/lab.md.
+finished, in UTC with a Z (docs/engineering/exports.md, Recording exported_at). A retake goes into an empty folder:
+a part refuses a folder that already holds one of its exports. The lab procedure is docs/engineering/lab.md.
 
 .EXAMPLE
-pwsh -File scripts/lab_capture.ps1 -Out firm/lab/raw/seed-clean/exports -Part Graph
+pwsh -File scripts/lab_capture.ps1 -Out firm/lab/raw/seed-clean/exports -Part Graph -TenantId <tenant ID>
 #>
 param(
     [Parameter(Mandatory)] [string] $Out,
@@ -22,25 +23,35 @@ param(
     [string] $Repository
 )
 $ErrorActionPreference = 'Stop'
+if ($Part -ne 'Veeam' -and -not $TenantId) { throw '-Part Graph and -Part Defender need -TenantId, the lab tenant ID' }
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 $manifest = Join-Path $Out 'manifest.yaml'
 if (-not (Test-Path $manifest)) { Set-Content -Path $manifest -Value 'exports:' -Encoding ascii }
 
 function Add-Entry([string] $File, [string] $Reader) {
-    $at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
     $line = "  - {file: $File, reader: $Reader, exported_at: $at}"
     Add-Content -Path $manifest -Value $line -Encoding ascii
     Write-Output $line
 }
 
+function Assert-New([string] $File) {
+    if (Test-Path (Join-Path $Out $File)) { throw "$File is already in $Out; retake into an empty folder" }
+}
+
 function Save-Graph([string] $Uri, [string] $File, [string] $Reader) {
+    Assert-New $File
     Invoke-MgGraphRequest -Method GET -Uri $Uri -OutputType Json | Out-File (Join-Path $Out $File) -Encoding utf8
     Add-Entry $File $Reader
 }
 
 if ($Part -eq 'Graph') {
-    Connect-MgGraph -NoWelcome -Scopes 'User.Read.All', 'AuditLog.Read.All', 'Policy.Read.All',
+    'users.json', 'registration.json', 'ca-policies.json', 'security-defaults.json', 'role-assignments.json',
+        'intune-devices.json' | ForEach-Object { Assert-New $_ }
+    Connect-MgGraph -NoWelcome -TenantId $TenantId -Scopes 'User.Read.All', 'AuditLog.Read.All', 'Policy.Read.All',
         'RoleManagement.Read.Directory', 'DeviceManagementManagedDevices.Read.All'
+    $signedIn = (Get-MgContext).TenantId
+    if ($signedIn -ne $TenantId) { throw "Signed in to tenant $signedIn, not the lab tenant $TenantId" }
     Save-Graph 'v1.0/users?$select=id,userPrincipalName,displayName,accountEnabled,userType&$top=999' `
         'users.json' 'entra_users'
     Save-Graph 'v1.0/reports/authenticationMethods/userRegistrationDetails' 'registration.json' 'entra_registration'
@@ -54,7 +65,8 @@ if ($Part -eq 'Graph') {
 }
 
 if ($Part -eq 'Defender') {
-    if (-not $TenantId -or -not $AppId) { throw '-Part Defender needs -TenantId and -AppId' }
+    if (-not $AppId) { throw '-Part Defender needs -AppId' }
+    Assert-New 'defender-machines.json'
     $secret = Read-Host -AsSecureString 'Client secret of the lab app registration'
     $plain = [System.Net.NetworkCredential]::new('', $secret).Password
     $token = (Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
@@ -68,6 +80,8 @@ if ($Part -eq 'Defender') {
 
 if ($Part -eq 'Veeam') {
     if (-not $Repository) { throw '-Part Veeam needs -Repository' }
+    Assert-New 'veeam-users.json'
+    Assert-New 'veeam-user-properties.json'
     $repo = Get-VBORepository -Name $Repository
     Get-VBOEntityData -Type User -Repository $repo |
         Select-Object Email, DisplayName, IsMailboxBackedUp,

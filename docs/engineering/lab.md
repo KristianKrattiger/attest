@@ -21,8 +21,8 @@ machine or the lab's Azure VMs.
   `Install-Module Microsoft.Graph.Authentication -Scope CurrentUser`
 - The Python environment from [using.md](using.md).
 
-Windows PowerShell may refuse to run scripts. Every command below passes `-ExecutionPolicy Bypass`, which applies to
-that one process only.
+Windows PowerShell may refuse to run scripts. Every `powershell` command below passes `-ExecutionPolicy Bypass`, which
+applies to that one process only.
 
 ## 1. The tenant
 
@@ -31,12 +31,16 @@ that one process only.
 2. Connect for setup, in `pwsh`:
 
    ```powershell
-   Connect-MgGraph -Scopes 'User.ReadWrite.All', 'Directory.ReadWrite.All', 'RoleManagement.ReadWrite.Directory',
-       'Policy.ReadWrite.ConditionalAccess', 'Policy.Read.All', 'UserAuthenticationMethod.ReadWrite.All'
+   Connect-MgGraph -TenantId <tenant ID> -Scopes 'User.ReadWrite.All', 'Directory.ReadWrite.All',
+       'RoleManagement.ReadWrite.Directory', 'Policy.ReadWrite.ConditionalAccess', 'Policy.Read.All',
+       'UserAuthenticationMethod.ReadWrite.All'
+   if ((Get-MgContext).TenantId -ne '<tenant ID>') { throw 'Not signed in to the lab tenant' }
    function Send-Graph($Method, $Uri, $Body) {
        Invoke-MgGraphRequest -Method $Method -Uri $Uri -Body ($Body | ConvertTo-Json -Depth 8) -ContentType 'application/json'
    }
    ```
+
+   Stop if it throws: every step below writes to whichever tenant you are signed in to.
 
 3. Turn security defaults off:
 
@@ -158,11 +162,13 @@ Wait a day after the last change, so the registration report and Defender's `las
 same capture from both shells, minutes apart:
 
 ```powershell
-pwsh -File scripts/lab_capture.ps1 -Out firm/lab/raw/seed-clean/exports -Part Graph
+pwsh -File scripts/lab_capture.ps1 -Out firm/lab/raw/seed-clean/exports -Part Graph -TenantId <tenant ID>
 pwsh -File scripts/lab_capture.ps1 -Out firm/lab/raw/seed-clean/exports -Part Defender -TenantId <tenant ID> -AppId <app ID>
-powershell -ExecutionPolicy Bypass -File scripts/lab_capture.ps1 -Out firm/lab/raw/seed-clean-ps51/exports -Part Graph
+powershell -ExecutionPolicy Bypass -File scripts/lab_capture.ps1 -Out firm/lab/raw/seed-clean-ps51/exports -Part Graph -TenantId <tenant ID>
 powershell -ExecutionPolicy Bypass -File scripts/lab_capture.ps1 -Out firm/lab/raw/seed-clean-ps51/exports -Part Defender -TenantId <tenant ID> -AppId <app ID>
 ```
+
+A retake goes into an empty folder: the script refuses a folder that already holds one of its exports.
 
 On `lab-veeam`, with a copy of `scripts/lab_capture.ps1`:
 
@@ -185,7 +191,8 @@ venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean fir
 venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean-ps51 firm/lab/seed-clean-ps51 --tenant-id <tenant ID> --admin-name "<your display name>" --admin-address <the address you signed up with>
 ```
 
-Add `--also <value>` (repeatable) for anything else that names you or the tenant, such as a phone number or a device name; a capture that still holds a value the scrubber knows to deny is refused and nothing is written.
+Add `--also <value>` (repeatable) for anything else that names you or the tenant, such as a phone number or a device
+name; a capture that still holds a value the scrubber knows to deny is refused and nothing is written.
 
 Once `firm/lab/seed-clean/exports/manifest.yaml` exists, the messy-firm tests use it as their seed.
 
@@ -196,6 +203,9 @@ Each twin is two captures: `before`, then the mess, then `after`. Capture `befor
 `firm/lab/raw/<twin>/after/exports`, then undo the mess. Scrub `firm/lab/raw/<twin>` into `firm/lab/<twin>` with the
 same arguments as above. One mess at a time: a twin whose `after` shows two messes cannot be compared with either
 operator.
+
+Capture each `before` and `after` the way section 3 captures `seed-clean`, with the same three parts: Graph and Defender
+from `pwsh` (with `-TenantId`, and `-AppId` for Defender), Veeam on `lab-veeam`.
 
 | Twin | Operator | Make the mess | Wait | Undo |
 |---|---|---|---|---|
@@ -212,9 +222,10 @@ operator.
 | `real-messy-shared-mailbox` | shared mailbox Veeam never saw | A second shared mailbox "Front Desk", excluded from the backup job | 1 day | Delete it |
 | `real-messy-paged` | users export is one page of several | No change in the tenant: copy `before` to `after`, then replace `after`'s `users.json` with the command below | none | none |
 
-The paged users export, in `pwsh`, signed in with the scopes `scripts/lab_capture.ps1 -Part Graph` uses:
+The paged users export, in `pwsh`, after signing in to the lab tenant with the one scope it needs:
 
 ```powershell
+Connect-MgGraph -NoWelcome -TenantId <tenant ID> -Scopes 'User.Read.All'
 Invoke-MgGraphRequest -Method GET -Uri 'v1.0/users?$select=id,userPrincipalName,displayName,accountEnabled,userType&$top=5' `
     -OutputType Json | Out-File firm/lab/raw/real-messy-paged/after/exports/users.json -Encoding utf8
 ```
