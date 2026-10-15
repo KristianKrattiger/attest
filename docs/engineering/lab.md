@@ -20,6 +20,8 @@ machine or the lab's Azure VMs.
 - The Graph module, once in each shell (`pwsh` and `powershell`):
   `Install-Module Microsoft.Graph.Authentication -Scope CurrentUser`
 - The Python environment from [using.md](using.md).
+- A separate browser profile signed in only to the lab tenant, for every portal step below (Exchange, Intune, Defender,
+  Azure, Entra): a flag cannot pin a portal to a tenant, so check the tenant name in the portal header before each one.
 
 Windows PowerShell may refuse to run scripts. Every `powershell` command below passes `-ExecutionPolicy Bypass`, which
 applies to that one process only.
@@ -36,11 +38,13 @@ applies to that one process only.
        'UserAuthenticationMethod.ReadWrite.All'
    if ((Get-MgContext).TenantId -ne '<tenant ID>') { throw 'Not signed in to the lab tenant' }
    function Send-Graph($Method, $Uri, $Body) {
+       if ((Get-MgContext).TenantId -ne '<tenant ID>') { throw 'Not signed in to the lab tenant' }
        Invoke-MgGraphRequest -Method $Method -Uri $Uri -Body ($Body | ConvertTo-Json -Depth 8) -ContentType 'application/json'
    }
    ```
 
-   Stop if it throws: every step below writes to whichever tenant you are signed in to.
+   Stop if it throws: every step below writes to whichever tenant you are signed in to. `Send-Graph` checks again
+   before each request.
 
 3. Turn security defaults off:
 
@@ -142,7 +146,8 @@ applies to that one process only.
    does not take, onboard with the local script instead (Defender portal, Settings, Endpoints, Onboarding).
 6. The Veeam server, `lab-veeam`: Windows Server 2022 Datacenter, Standard_D8s_v5 (Veeam's documented minimum is 8
    cores and 16 GB), a 128 GB data disk. Not Entra-joined, not enrolled, not onboarded: it is outside the firm's
-   population. On it:
+   population. Put it in its own virtual network, apart from the endpoints: Defender's device discovery could otherwise
+   list it, and a discovered server that is not onboarded would make seed-clean's EDR a gap. On it:
    - Install Veeam Backup for Microsoft 365 (from veeam.com). With no license installed it runs as the Community
      Edition, for up to 10 users.
    - Add the organization: Microsoft 365, modern app-only authentication, and let Veeam register a new Entra
@@ -170,10 +175,11 @@ powershell -ExecutionPolicy Bypass -File scripts/lab_capture.ps1 -Out firm/lab/r
 
 A retake goes into an empty folder: the script refuses a folder that already holds one of its exports.
 
-On `lab-veeam`, with a copy of `scripts/lab_capture.ps1`:
+On `lab-veeam`, with a copy of `scripts/lab_capture.ps1`. Each Veeam capture needs a fresh `-Out` folder, because the
+script refuses one that already holds its exports; use a new one every time, such as `C:\capture\seed-clean\exports`:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File lab_capture.ps1 -Out C:\capture\exports -Part Veeam -Repository '<repository>'
+powershell -ExecutionPolicy Bypass -File lab_capture.ps1 -Out C:\capture\seed-clean\exports -Part Veeam -Repository '<repository>'
 ```
 
 Copy `veeam-users.json` and `veeam-user-properties.json` into both `firm/lab/raw/seed-clean/exports/` and
@@ -184,17 +190,27 @@ Check that `Email`, `IsMailboxBackedUp` and `MailboxBackedUpTime` are among them
 `veeam-users.json` is the account's UPN. Write what you found into `exports.md` (Veeam section) and `using.md` (Known
 limitations). This settles the strategy register's next step 1.
 
-Scrub both captures into `firm/lab/` (the values you pass are added to the gitignored `firm/lab/raw/deny.txt`):
+Scrub both captures into `firm/lab/` (the values you pass are added to the gitignored `firm/lab/raw/deny.txt`). The
+scrubber knows only what you pass it, so first look for what it cannot learn. `--admin-address` is the address you
+signed up with, and your user name in the tenant is caught only when it equals that address's local part, a name part
+or the dotted form of your name: a "Robin Quill" who signed up as `robinquill@...` and whose UPN is `rquill@...` keeps
+`rquill`. So, before you scrub, open your own `principal` object in `role-assignments.json` (`$expand=principal`
+returns your whole user object, possibly with `businessPhones`, `mobilePhone` and `otherMails`) and the `vmMetadata` of
+the machines in `defender-machines.json` (it may carry a `subscriptionId` and a `resourceId`; an Azure subscription ID
+resolves back to the tenant with an unauthenticated call to Azure Resource Manager). Pass `--also <value>` for each of
+your UPN user name, every phone number and other address found there, and the Azure subscription ID, and for anything
+else that names you or the tenant, such as a device name. The option is repeatable.
 
 ```bash
-venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean --tenant-id <tenant ID> --admin-name "<your display name>" --admin-address <the address you signed up with>
-venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean-ps51 firm/lab/seed-clean-ps51 --tenant-id <tenant ID> --admin-name "<your display name>" --admin-address <the address you signed up with>
+venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean firm/lab/seed-clean --tenant-id <tenant ID> --admin-name "<your display name>" --admin-address <the address you signed up with> --also <your UPN user name> --also <subscription ID>
+venv/Scripts/python.exe scripts/scrub_lab_capture.py firm/lab/raw/seed-clean-ps51 firm/lab/seed-clean-ps51 --tenant-id <tenant ID> --admin-name "<your display name>" --admin-address <the address you signed up with> --also <your UPN user name> --also <subscription ID>
 ```
 
-Add `--also <value>` (repeatable) for anything else that names you or the tenant, such as a phone number or a device
-name; a capture that still holds a value the scrubber knows to deny is refused and nothing is written.
+A capture that still holds a value the scrubber knows to deny is refused and nothing is written.
 
-Once `firm/lab/seed-clean/exports/manifest.yaml` exists, the messy-firm tests use it as their seed.
+Once `firm/lab/seed-clean/exports/manifest.yaml` exists, the messy-firm tests use it as their seed, and the four
+archetype tests fail until you have hand-checked each archetype against it and written its truth file in
+`tests/messy/archetypes/seed-clean/` (the files in `tests/messy/archetypes/dev/` show the form).
 
 ## 4. The twins
 
@@ -205,7 +221,11 @@ same arguments as above. One mess at a time: a twin whose `after` shows two mess
 operator.
 
 Capture each `before` and `after` the way section 3 captures `seed-clean`, with the same three parts: Graph and Defender
-from `pwsh` (with `-TenantId`, and `-AppId` for Defender), Veeam on `lab-veeam`.
+from `pwsh` (with `-TenantId`, and `-AppId` for Defender), Veeam on `lab-veeam` into a fresh `-Out` folder each time.
+
+Keep every endpoint and `lab-veeam` running through the day before each capture, except the VM the mess turns off. A
+`before` that is already a gap (a deallocated VM, a Veeam server that was off at 02:00) proves nothing about the mess,
+and the fidelity test refuses it.
 
 | Twin | Operator | Make the mess | Wait | Undo |
 |---|---|---|---|---|
@@ -219,16 +239,20 @@ from `pwsh` (with `-TenantId`, and `-AppId` for Defender), Veeam on `lab-veeam`.
 | `real-messy-renamed` | device renamed after onboarding | `Rename-Computer -NewName lab-lt-03b -Restart` on `lab-lt-03` | 1 day | Rename it back |
 | `real-messy-over-limit` | 11th user over the Veeam limit | An 11th licensed mailbox user; let the nightly job run | 1 day | Delete the user |
 | `real-messy-paused` | backup job paused for 2 days | Disable the backup job | 2 days | Enable it |
-| `real-messy-shared-mailbox` | shared mailbox Veeam never saw | A second shared mailbox "Front Desk", excluded from the backup job | 1 day | Delete it |
+| `real-messy-shared-mailbox` | shared mailbox Veeam never saw | A second shared mailbox "Front Office 2" (the operator's `front.office.2`), excluded from the backup job | 1 day | Delete it |
 | `real-messy-paged` | users export is one page of several | No change in the tenant: copy `before` to `after`, then replace `after`'s `users.json` with the command below | none | none |
 
 The paged users export, in `pwsh`, after signing in to the lab tenant with the one scope it needs:
 
 ```powershell
 Connect-MgGraph -NoWelcome -TenantId <tenant ID> -Scopes 'User.Read.All'
+if ((Get-MgContext).TenantId -ne '<tenant ID>') { throw 'Not signed in to the lab tenant' }
 Invoke-MgGraphRequest -Method GET -Uri 'v1.0/users?$select=id,userPrincipalName,displayName,accountEnabled,userType&$top=5' `
     -OutputType Json | Out-File firm/lab/raw/real-messy-paged/after/exports/users.json -Encoding utf8
 ```
+
+The `nextLink` in that file carries a `$skiptoken`, which is the last user's address, base64-encoded. The scrubber
+replaces the token with `REDACTED` and keeps the link, which is all the reader needs.
 
 What the twins can show that the operators guess:
 
@@ -251,7 +275,8 @@ What the twins can show that the operators guess:
 ## 6. Teardown
 
 1. Delete the `attest-lab` resource group. Cancel the Azure subscription if it was made for the lab.
-2. Delete the `attest-lab-export` app registration.
+2. Delete the `attest-lab-export` app registration, and the Entra application Veeam registered when you added the
+   organization (Entra admin center, App registrations, All applications).
 3. Microsoft 365 admin center, Billing, Your products: cancel the Business Premium trial before it bills.
 4. Keep `firm/lab/raw/deny.txt` so the guard test can keep checking for the tenant's names; delete the rest of
    `firm/lab/raw/`.

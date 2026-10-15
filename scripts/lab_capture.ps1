@@ -9,8 +9,9 @@ tenant's ID. Graph signs in to that tenant and refuses to export from any other.
 then copy veeam-users.json, veeam-user-properties.json and the manifest line it prints into the same folder.
 
 Each part appends one manifest line per export to <Out>/manifest.yaml, with exported_at taken after that export
-finished, in UTC with a Z (docs/engineering/exports.md, Recording exported_at). A retake goes into an empty folder:
-a part refuses a folder that already holds one of its exports. The lab procedure is docs/engineering/lab.md.
+finished, rounded up to the next whole second, in UTC with a Z (docs/engineering/exports.md, Recording exported_at).
+A retake goes into an empty folder: a part refuses a folder that already holds one of its exports. The lab procedure
+is docs/engineering/lab.md.
 
 .EXAMPLE
 pwsh -File scripts/lab_capture.ps1 -Out firm/lab/raw/seed-clean/exports -Part Graph -TenantId <tenant ID>
@@ -29,7 +30,9 @@ $manifest = Join-Path $Out 'manifest.yaml'
 if (-not (Test-Path $manifest)) { Set-Content -Path $manifest -Value 'exports:' -Encoding ascii }
 
 function Add-Entry([string] $File, [string] $Reader) {
-    $at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
+    # Rounded up to the next whole second, so exported_at is never earlier than the moment the export finished.
+    $finished = (Get-Date).ToUniversalTime().AddTicks([TimeSpan]::TicksPerSecond - 1)
+    $at = $finished.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
     $line = "  - {file: $File, reader: $Reader, exported_at: $at}"
     Add-Content -Path $manifest -Value $line -Encoding ascii
     Write-Output $line
