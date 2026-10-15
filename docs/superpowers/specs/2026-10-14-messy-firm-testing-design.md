@@ -117,7 +117,8 @@ An operator edits the parsed exports of a firm to make one real-world mess. It d
 | EDR | An Intune device with no primary user (`userPrincipalName: ""`) | inert |
 | Backup | An 11th mailbox user, over the Community Edition limit and not backed up ✓ | breaks `backup.m365_mailboxes` |
 | Backup | The backup job paused for 2 days ✓ | breaks `backup.m365_mailboxes` |
-| Backup | A shared mailbox listed by Veeam but not backed up ✓ | breaks `backup.m365_mailboxes` |
+| Backup | A shared mailbox listed by Veeam but not backed up | breaks `backup.m365_mailboxes` |
+| Backup | A shared mailbox Veeam never saw ✓ | breaks `backup.m365_mailboxes` (comes out backed today: a known false backed, see the amendment) |
 | Backup | A Veeam `Email` that is the primary SMTP address, not the UPN | holds (a documented false gap) |
 | Format | The same capture from PowerShell 5.1 and from PowerShell 7 ✓ | inert |
 | Format | UTF-16, UTF-8 with BOM, CRLF; fields and rows reordered; unknown fields added | inert |
